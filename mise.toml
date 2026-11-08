@@ -84,10 +84,10 @@ dir = "extension"
 run = "aube install"
 
 [tasks."ext:lint"]
-description = "Lint the Firefox build with web-ext"
+description = "Lint the Firefox build with web-ext (self-hosted: it has an update_url)"
 depends = ["ext:build", "ext:deps"]
 dir = "extension"
-run = "aube exec web-ext lint --source-dir dist/firefox"
+run = "aube exec web-ext lint --self-hosted --source-dir dist/firefox"
 
 [tasks."ext:sign"]
 description = "Sign the Firefox add-on as unlisted (needs AMO_JWT_ISSUER / AMO_JWT_SECRET)"

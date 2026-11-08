@@ -23,6 +23,7 @@ common() {
   "short_name": "Surge",
   "version": "$manifest_version",
   "description": "Send downloads to Surge: multi-connection, resumable downloads and video sites.",
+  "homepage_url": "https://arafays.github.io/surge/",
   "icons": { "16": "icons/icon-16.png", "32": "icons/icon-32.png", "48": "icons/icon-48.png", "128": "icons/icon-128.png" },
   "action": { "default_popup": "popup.html", "default_title": "Surge", "default_icon": { "16": "icons/icon-16.png", "32": "icons/icon-32.png" } },
   "permissions": ["downloads", "nativeMessaging", "cookies", "storage", "contextMenus", "webRequest", "tabs"],
@@ -57,7 +58,7 @@ JSON
   common
   cat <<'JSON'
   "background": { "scripts": ["background.js"] },
-  "browser_specific_settings": { "gecko": { "id": "surge@surge-downloader", "strict_min_version": "142.0", "data_collection_permissions": { "required": ["none"] } } }
+  "browser_specific_settings": { "gecko": { "id": "surge@surge-downloader", "strict_min_version": "142.0", "update_url": "https://arafays.github.io/surge/updates.json", "data_collection_permissions": { "required": ["none"] } } }
 }
 JSON
 } > "$out/firefox/manifest.json"
