@@ -402,6 +402,11 @@ try {
   check((await evaluate(s3, `document.getElementById('browser').hidden`)) === true, "'Use browser' hidden for video pages");
   const saveTo = await until(() => evaluate(s3, `document.getElementById('dir').value && [document.getElementById('dir').value, document.getElementById('dirHint').textContent]`), 5000, "Save to folder");
   check(saveTo[0].endsWith("/videos") && /Videos folder/.test(saveTo[1]), `dialog shows where it goes: ${saveTo.join(" ")}`);
+  if (shots) {
+    await send("Emulation.setDeviceMetricsOverride", { width: 540, height: 560, deviceScaleFactor: 1, mobile: false }, s3);
+    await sleep(300);
+    await shoot(s3, "dialog-video.png");
+  }
   await evaluate(s3, `document.getElementById('start').click(); true`);
   const vid = await until(() => {
     const list = JSON.parse(readFileSync(store, "utf8"));

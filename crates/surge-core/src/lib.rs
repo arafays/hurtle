@@ -1028,23 +1028,34 @@ mod tests {
 
     #[test]
     fn folders_by_type() {
+        // An absolute path on this OS ("/pics" has no drive on Windows).
+        let abs = |p: &str| {
+            if cfg!(windows) {
+                format!("C:{p}")
+            } else {
+                p.to_string()
+            }
+        };
         let mut s = Settings {
             download_dir: "/dl".into(),
             ..Default::default()
         };
         let change = ipc::SettingsChange {
             type_dirs: Some(BTreeMap::from([
-                ("video".to_string(), "/media/videos".to_string()),
-                ("image".to_string(), "/pics".to_string()),
+                ("video".to_string(), abs("/media/videos")),
+                ("image".to_string(), abs("/pics")),
             ])),
             ..Default::default()
         };
         assert_eq!(s.apply(&change), Ok(true));
         assert_eq!(
             s.dir_for(util::category("clip.MP4")),
-            PathBuf::from("/media/videos")
+            PathBuf::from(abs("/media/videos"))
         );
-        assert_eq!(s.dir_for(util::category("a.png")), PathBuf::from("/pics"));
+        assert_eq!(
+            s.dir_for(util::category("a.png")),
+            PathBuf::from(abs("/pics"))
+        );
         // No folder of its own, or no known type: the main folder.
         assert_eq!(s.dir_for(util::category("a.zip")), PathBuf::from("/dl"));
         assert_eq!(s.dir_for(util::category("README")), PathBuf::from("/dl"));
@@ -1054,7 +1065,7 @@ mod tests {
         );
         assert_eq!(
             s.dir_for(Some(media::category(None, None))),
-            PathBuf::from("/media/videos")
+            PathBuf::from(abs("/media/videos"))
         );
 
         // An empty path goes back to the main folder.

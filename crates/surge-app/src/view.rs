@@ -562,12 +562,7 @@ impl SurgeView {
                 .child(div().w(px(56.)).text_color(muted).child(label))
                 .child(div().flex_1().min_w_0().truncate().child(value))
         };
-        let location = d
-            .path
-            .clone()
-            .unwrap_or_else(|| d.dir.clone())
-            .display()
-            .to_string();
+        let location = short_path(d.path.as_deref().unwrap_or(&d.dir));
         let mut panel = v_flex()
             .gap_1()
             .pl_8()
@@ -727,7 +722,7 @@ impl SurgeView {
             Status::Completed => format!(
                 "{}  ·  {}",
                 util::fmt_bytes(d.total.unwrap_or(d.downloaded)),
-                d.dir.display()
+                short_path(&d.dir)
             )
             .into(),
             Status::Failed(e) => e.clone().into(),

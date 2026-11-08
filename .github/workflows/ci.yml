@@ -30,7 +30,7 @@ jobs:
         include:
           - { os: ubuntu-22.04, key: x86_64-unknown-linux-gnu }
           - { os: windows-latest, key: x86_64-pc-windows-msvc }
-          - { os: macos-14, key: aarch64-apple-darwin }
+          - { os: macos-15, key: aarch64-apple-darwin }
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     steps:
