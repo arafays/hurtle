@@ -34,12 +34,12 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Linux build dependencies (GPUI)
         if: runner.os == 'Linux'
         run: sudo scripts/ci-linux-deps.sh
       # Only Rust (with clippy + rustfmt, see mise.toml); node/aube/linters aren't needed here.
-      - uses: jdx/mise-action@v3
+      - uses: jdx/mise-action@v4
         with:
           install_args: rust
       - uses: Swatinem/rust-cache@v2
@@ -60,11 +60,11 @@ jobs:
       # `mise run` would otherwise install Rust too.
       MISE_DISABLE_TOOLS: rust
     steps:
-      - uses: actions/checkout@v4
-      - uses: jdx/mise-action@v3
+      - uses: actions/checkout@v7
+      - uses: jdx/mise-action@v4
         with:
           install_args: node aube shellcheck actionlint
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: ~/.local/share/aube/store
           key: aube-store-${{ runner.os }}-${{ hashFiles('extension/aube-lock.yaml') }}

@@ -31,7 +31,7 @@ jobs:
     outputs:
       version: ${{ steps.v.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - id: v
         name: Tag matches Cargo.toml version
         run: |
@@ -58,11 +58,11 @@ jobs:
       run:
         shell: bash
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Linux build dependencies (GPUI)
         if: runner.os == 'Linux'
         run: sudo scripts/ci-linux-deps.sh
-      - uses: jdx/mise-action@v3
+      - uses: jdx/mise-action@v4
         with:
           install_args: rust
       - run: rustup target add ${{ matrix.target }}
@@ -74,7 +74,7 @@ jobs:
           cache-on-failure: true
       - run: cargo build --release --locked --target ${{ matrix.target }} -p hurtle-app -p hurtle-host -p hurtle-cli
       - run: scripts/package.sh ${{ matrix.target }}
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: hurtle-${{ matrix.target }}
           path: dist/*
@@ -89,11 +89,11 @@ jobs:
     env:
       MISE_DISABLE_TOOLS: rust # `mise run` would otherwise install Rust too
     steps:
-      - uses: actions/checkout@v4
-      - uses: jdx/mise-action@v3
+      - uses: actions/checkout@v7
+      - uses: jdx/mise-action@v4
         with:
           install_args: node aube
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: ~/.local/share/aube/store
           key: aube-store-${{ runner.os }}-${{ hashFiles('extension/aube-lock.yaml') }}
@@ -114,7 +114,7 @@ jobs:
         run: |
           mise run ext:sign
           for f in extension/dist/signed/*.xpi; do mv "$f" "dist/hurtle-firefox-$VERSION.xpi"; done
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: hurtle-extension
           path: dist/*
@@ -131,8 +131,8 @@ jobs:
       id-token: write # build provenance
       attestations: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
         with:
           path: dist
           merge-multiple: true
@@ -141,19 +141,19 @@ jobs:
         run: |
           sha256sum -- * > SHA256SUMS.txt
           cat SHA256SUMS.txt
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: release-files
           path: dist/*
           retention-days: 14
       - name: Attest build provenance
         if: startsWith(github.ref, 'refs/tags/v')
-        uses: actions/attest-build-provenance@v2
+        uses: actions/attest-build-provenance@v4
         with:
           subject-path: dist/*
       - name: Publish GitHub release
         if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: dist/*
           body_path: .github/release-notes.md
