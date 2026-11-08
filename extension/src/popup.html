@@ -1,0 +1,98 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <header>
+      <img src="icons/icon-32.png" alt="" width="20" height="20" />
+      <strong>Surge</strong>
+      <span id="host" class="pill">checking…</span>
+    </header>
+
+    <main>
+    <section>
+      <h2>Media on this page</h2>
+      <ul id="media" class="media"></ul>
+      <p id="mediaEmpty" class="empty">No video files caught yet. Play the video and it shows up here; the page itself works above.</p>
+    </section>
+
+    <section>
+      <h2>Download folders</h2>
+      <p class="empty">Each file goes to its type's folder; types left empty use the main folder.</p>
+      <div id="folders" class="folders"></div>
+      <p id="foldersNote" class="status"></p>
+    </section>
+
+    <section>
+      <h2>Surge app</h2>
+      <label class="row">
+        <span>Connections per download</span>
+        <select id="appConnections"></select>
+      </label>
+      <label class="row">
+        <span>Global speed limit</span>
+        <select id="appSpeedLimit"></select>
+      </label>
+      <p id="appNote" class="empty" hidden>Start Surge to change these.</p>
+    </section>
+
+    <section>
+      <h2>Browser</h2>
+      <label class="row">
+        <span>Show “Download video” button over videos</span>
+        <input type="checkbox" id="overlay" />
+      </label>
+      <p id="overlayHidden" class="empty" hidden>
+        You hid the button on this page. <a href="#" id="overlayReset">Show it again</a>
+      </p>
+      <label class="row">
+        <span>Catch browser downloads</span>
+        <input type="checkbox" id="enabled" />
+      </label>
+      <label class="row">
+        <span>Show dialog before downloading</span>
+        <input type="checkbox" id="showDialog" />
+      </label>
+      <label class="row">
+        <span>Detect video and audio</span>
+        <input type="checkbox" id="sniffMedia" />
+      </label>
+      <label class="row">
+        <span>Only files larger than (MB)</span>
+        <input type="number" id="minSizeMB" min="0" step="1" />
+      </label>
+      <label class="col">
+        <span>Let the browser keep these types</span>
+        <input type="text" id="skipExtensions" placeholder="e.g. pdf jpg png" />
+      </label>
+    </section>
+
+    <section>
+      <h2>Troubleshooting</h2>
+      <label class="row">
+        <span>Detailed debug log</span>
+        <input type="checkbox" id="debug" />
+      </label>
+      <p class="empty">Errors are always logged. <a href="#" id="debugOpen">Open the debug log</a></p>
+    </section>
+
+    </main>
+    <div id="access" class="notice" hidden>
+      Surge needs site access to see media and forward cookies for logged-in downloads.
+      <button id="grant">Allow on all sites</button>
+    </div>
+
+    <p id="status" class="status"></p>
+
+    <footer class="bar">
+      <button id="open">Open Surge</button>
+      <span class="hint">Right-click a link → Download with Surge</span>
+    </footer>
+    <script src="mediaui.js"></script>
+    <script src="folders.js"></script>
+    <script src="popup.js"></script>
+  </body>
+</html>

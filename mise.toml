@@ -1,0 +1,131 @@
+# Tooling: mise (https://mise.jdx.dev) pins the toolchain, aube (https://aube.sh)
+# manages the extension's JS dev dependencies. Everything runs as `mise run <task>`.
+
+min_version = "2026.9.16"
+
+[settings]
+# Fail rather than resolve a tool that mise.lock doesn't pin (CI sets MISE_LOCKED=1 too).
+lockfile = true
+
+[tools]
+rust = { version = "1.98", components = "rustfmt,clippy" }
+node = "26"
+aube = { version = "2", minimum_release_age = "0s" }
+shellcheck = "0.11"
+actionlint = "1.7"
+
+[env]
+# Keep dev runs out of your real download list/settings.
+SURGE_DATA = "{{config_root}}/.dev-data"
+# The window manager can tell dev/test windows apart (see CLAUDE.md).
+SURGE_APP_ID = "surge-dev"
+
+[tasks.dev]
+description = "Run the desktop app (debug build) with dev data"
+run = "cargo run -p surge-app --bin surge -- {{arg(name='url', default='')}}"
+
+[tasks.build]
+description = "Release build of app, native host and CLI"
+run = "cargo build --release -p surge-app -p surge-host -p surge-cli"
+
+[tasks.test]
+description = "Engine unit tests"
+run = "cargo test -p surge-core"
+
+[tasks.lint]
+description = "clippy + extension lint"
+depends = ["ext:lint"]
+run = "cargo clippy --workspace --all-targets -- -D warnings"
+
+[tasks.fmt]
+run = "cargo fmt --all"
+
+[tasks."fmt:check"]
+description = "cargo fmt --check"
+run = "cargo fmt --all --check"
+
+[tasks."ci:rust"]
+description = "What CI runs per OS: clippy -D warnings + engine tests (locked)"
+run = [
+  "cargo clippy --workspace --all-targets --locked -- -D warnings",
+  "cargo test -p surge-core --locked",
+]
+
+[tasks."check:cross"]
+description = "Type-check Windows (all crates) and macOS (core/host/cli) from Linux with zig as C compiler"
+tools = { zig = "0.14" }
+run = "scripts/cross-check.sh"
+
+[tasks.serve]
+description = "Throttled test server: serve FILE at N KiB/s per connection (default 512)"
+run = "cargo run --release -p surge-core --example throttle_server -- {{arg(name='file')}} 8090 {{arg(name='kbps', default='512')}}"
+
+[tasks.bench]
+description = "Download from the throttle server with 1 then 8 connections (needs `mise run serve` running)"
+run = """
+#!/usr/bin/env bash
+set -euo pipefail
+out=$(mktemp -d)
+cargo build -q --release -p surge-cli
+for c in 1 8; do
+  ./target/release/surge-cli http://127.0.0.1:8090/bench -c $c -o "$out" 2>&1 | tr '\\r' '\\n' | tail -1
+  rm -f "$out"/*
+done
+rmdir "$out"
+"""
+
+[tasks."ext:build"]
+description = "Build extension/dist/{chrome,firefox} + zips"
+run = "extension/build.sh"
+
+[tasks."ext:deps"]
+description = "Install the extension's JS dev dependencies (web-ext)"
+dir = "extension"
+run = "aube install"
+
+[tasks."ext:lint"]
+description = "Lint the Firefox build with web-ext"
+depends = ["ext:build", "ext:deps"]
+dir = "extension"
+run = "aube exec web-ext lint --source-dir dist/firefox"
+
+[tasks."ext:sign"]
+description = "Sign the Firefox add-on as unlisted (needs AMO_JWT_ISSUER / AMO_JWT_SECRET)"
+depends = ["ext:deps"]
+dir = "extension"
+run = "aube exec web-ext sign --channel unlisted --source-dir dist/firefox --artifacts-dir dist/signed --api-key \"$AMO_JWT_ISSUER\" --api-secret \"$AMO_JWT_SECRET\""
+
+[tasks."ci:shellcheck"]
+description = "shellcheck every script"
+run = "shellcheck scripts/*.sh extension/build.sh"
+
+[tasks.package]
+description = "Release build for this machine + dist/ archive (what CI publishes)"
+run = """
+#!/usr/bin/env bash
+set -euo pipefail
+target=$(rustc -vV | sed -n 's/^host: //p')
+cargo build --release --locked --target "$target" -p surge-app -p surge-host -p surge-cli
+scripts/package.sh "$target"
+"""
+
+[tasks."ci:lint"]
+description = "Lint the GitHub workflows"
+run = "actionlint"
+
+[tasks."ext:e2e"]
+description = "Headless Chromium end-to-end test of extension + host + app"
+depends = ["ext:build"]
+run = "cargo build -p surge-app -p surge-host && node extension/test/e2e.mjs"
+
+[tasks."ext:e2e-firefox"]
+description = "Headless Firefox/Zen test of the dialog (uses the installed host; SURGE_FIREFOX=zen-bin, SURGE_VIDEO=<real page>)"
+depends = ["ext:build"]
+run = "node extension/test/e2e-firefox.mjs"
+
+[tasks.install]
+description = "Install binaries, desktop entry and native-messaging host for this user"
+run = "scripts/install.sh"
+
+[tasks.uninstall]
+run = "scripts/install.sh --uninstall"

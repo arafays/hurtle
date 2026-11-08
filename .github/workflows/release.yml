@@ -1,0 +1,162 @@
+name: Release
+
+# Push a tag like v0.1.0 (it must match `version` in Cargo.toml) to build the
+# Linux, Windows and macOS packages plus the browser extension, and publish
+# them as a GitHub release with SHA256SUMS. Run it by hand (Actions > Release >
+# Run workflow) for a dry run: everything is built and collected as workflow
+# artifacts, nothing is published.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false # never cancel a half-published release
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  CARGO_NET_RETRY: 10
+  MISE_LOCKED: 1
+
+jobs:
+  prepare:
+    name: Check version
+    runs-on: ubuntu-22.04
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: v
+        name: Tag matches Cargo.toml version
+        run: |
+          tag=""
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then tag=$GITHUB_REF_NAME; fi
+          echo "version=$(scripts/check-version.sh "$tag")" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: ${{ matrix.target }}
+    needs: prepare
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-22.04, target: x86_64-unknown-linux-gnu }
+          # Native arm64 runner: no cross toolchain needed.
+          - { os: ubuntu-22.04-arm, target: aarch64-unknown-linux-gnu }
+          - { os: windows-latest, target: x86_64-pc-windows-msvc }
+          - { os: macos-14, target: aarch64-apple-darwin }
+          - { os: macos-14, target: x86_64-apple-darwin }
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - name: Linux build dependencies (GPUI)
+        if: runner.os == 'Linux'
+        run: sudo scripts/ci-linux-deps.sh
+      - uses: jdx/mise-action@v3
+        with:
+          install_args: rust
+      - run: rustup target add ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: release-${{ matrix.target }}
+          # Tags only restore. A manual dry run from main refreshes the cache.
+          save-if: ${{ github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' }}
+          cache-on-failure: true
+      - run: cargo build --release --locked --target ${{ matrix.target }} -p surge-app -p surge-host -p surge-cli
+      - run: scripts/package.sh ${{ matrix.target }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: surge-${{ matrix.target }}
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 14
+
+  extension:
+    name: Browser extension
+    needs: prepare
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    env:
+      MISE_DISABLE_TOOLS: rust # `mise run` would otherwise install Rust too
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jdx/mise-action@v3
+        with:
+          install_args: node aube
+      - uses: actions/cache@v4
+        with:
+          path: ~/.local/share/aube/store
+          key: aube-store-${{ runner.os }}-${{ hashFiles('extension/aube-lock.yaml') }}
+          restore-keys: aube-store-${{ runner.os }}-
+      - run: mise run ext:lint # builds extension/dist/{chrome,firefox} + zips first
+      - name: Collect zips
+        run: mkdir -p dist && cp extension/dist/*.zip extension/dist/*-unsigned.xpi dist/
+      # Firefox only installs signed add-ons permanently. With AMO API keys
+      # (https://addons.mozilla.org/developers/addon/api/key/) set as the
+      # AMO_JWT_ISSUER / AMO_JWT_SECRET secrets, sign it as an unlisted
+      # (self-distributed) add-on; without them the unsigned xpi still ships.
+      - name: Sign Firefox add-on
+        env:
+          AMO_JWT_ISSUER: ${{ secrets.AMO_JWT_ISSUER }}
+          AMO_JWT_SECRET: ${{ secrets.AMO_JWT_SECRET }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+        if: env.AMO_JWT_ISSUER != ''
+        run: |
+          mise run ext:sign
+          for f in extension/dist/signed/*.xpi; do mv "$f" "dist/surge-firefox-$VERSION.xpi"; done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: surge-extension
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 14
+
+  publish:
+    name: Checksums + release
+    needs: [build, extension]
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    permissions:
+      contents: write # create the release
+      id-token: write # build provenance
+      attestations: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: SHA256SUMS
+        working-directory: dist
+        run: |
+          sha256sum -- * > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-files
+          path: dist/*
+          retention-days: 14
+      - name: Attest build provenance
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: dist/*
+      - name: Publish GitHub release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          body_path: .github/release-notes.md
+          generate_release_notes: true
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          fail_on_unmatched_files: true

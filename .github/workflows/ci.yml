@@ -1,0 +1,74 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0 # incremental data only bloats the cache
+  CARGO_PROFILE_DEV_DEBUG: 0 # no debuginfo: smaller target dir and cache, faster links
+  CARGO_NET_RETRY: 10
+  # Tool versions come from mise.toml; refuse anything mise.lock doesn't pin.
+  MISE_LOCKED: 1
+
+jobs:
+  rust:
+    name: Rust (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-22.04, key: x86_64-unknown-linux-gnu }
+          - { os: windows-latest, key: x86_64-pc-windows-msvc }
+          - { os: macos-14, key: aarch64-apple-darwin }
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Linux build dependencies (GPUI)
+        if: runner.os == 'Linux'
+        run: sudo scripts/ci-linux-deps.sh
+      # Only Rust (with clippy + rustfmt, see mise.toml); node/aube/linters aren't needed here.
+      - uses: jdx/mise-action@v3
+        with:
+          install_args: rust
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ci-${{ matrix.key }}
+          # Pull requests restore main's cache but never write one.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+          cache-on-failure: true
+      - run: mise run fmt:check
+        if: runner.os == 'Linux'
+      - run: mise run ci:rust
+
+  extension:
+    name: Extension + scripts
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    env:
+      # `mise run` would otherwise install Rust too.
+      MISE_DISABLE_TOOLS: rust
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jdx/mise-action@v3
+        with:
+          install_args: node aube shellcheck actionlint
+      - uses: actions/cache@v4
+        with:
+          path: ~/.local/share/aube/store
+          key: aube-store-${{ runner.os }}-${{ hashFiles('extension/aube-lock.yaml') }}
+          restore-keys: aube-store-${{ runner.os }}-
+      - run: mise run ext:lint
+      - run: mise run ci:shellcheck
+      - run: mise run ci:lint

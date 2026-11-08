@@ -1,0 +1,57 @@
+/* Full-viewport column: identity + destination on top, scrolling options, buttons always visible. */
+[hidden] { display: none !important; }
+html, body.dialog { height: 100%; }
+body.dialog {
+  width: auto; min-width: 0; padding: 0; overflow: hidden;
+  display: flex; flex-direction: column; height: 100vh; height: 100dvh;
+}
+body.dialog .top { flex: none; padding: 12px 16px 6px; border-bottom: 1px solid var(--border); min-width: 0; }
+body.dialog .scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; padding: 6px 16px; }
+body.dialog > #error { flex: none; margin: 0; padding: 6px 16px 0; min-height: 0; max-height: 5.6em; overflow-y: auto; word-break: break-word; }
+body.dialog > #error:empty { display: none; }
+body.dialog footer.buttons {
+  flex: none; margin: 0; padding: 10px 16px; border-top: 1px solid var(--border);
+  flex-wrap: wrap; justify-content: flex-end; background: var(--bg);
+}
+body.dialog header { margin-bottom: 6px; min-width: 0; }
+body.dialog header strong { font-size: 15px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+body.dialog header .pill { flex: none; white-space: nowrap; max-width: 45%; overflow: hidden; text-overflow: ellipsis; }
+body.dialog .col { border-top: 0; padding: 5px 0; min-width: 0; }
+body.dialog .col > span { font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+body.dialog input[type="text"], body.dialog select {
+  width: 100%; min-width: 0; padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px;
+  background: transparent; color: inherit; font: inherit; text-overflow: ellipsis;
+}
+body.dialog select option { background: var(--bg); color: var(--fg); }
+body.dialog #url { color: var(--muted); }
+.grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.value { padding: 6px 0; min-width: 0; overflow-wrap: anywhere; }
+.buttons .spacer { flex: 1; min-width: 0; }
+.buttons button { white-space: nowrap; }
+button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+button.primary:hover { color: #fff; filter: brightness(1.1); }
+button:disabled { opacity: .6; cursor: default; }
+
+.hint { font-style: normal; opacity: .8; }
+.quality { display: flex; gap: 10px; align-items: center; min-width: 0; }
+.quality > :not(img):not(.preview) { flex: 1 1 0; min-width: 0; }
+.quality img { width: 80px; height: 45px; object-fit: cover; border-radius: 4px; flex: none; }
+.grid2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.grid2 > label[hidden] + label { grid-column: 1 / -1; }
+.preview { width: 96px; height: 54px; border-radius: 4px; overflow: hidden; flex: none; background: rgba(127,127,127,.25); }
+.preview video { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+.folder { display: flex; gap: 6px; min-width: 0; }
+.folder input { flex: 1; min-width: 0; }
+.folder button { flex: none; }
+
+@media (max-width: 440px) {
+  .grid, .grid2 { grid-template-columns: minmax(0, 1fr); gap: 0; }
+  body.dialog .top, body.dialog .scroll, body.dialog footer.buttons, body.dialog > #error { padding-left: 12px; padding-right: 12px; }
+  .buttons .spacer { display: none; }
+  .buttons button.primary { flex: 1 1 100%; order: -1; }
+  .quality img { width: 64px; height: 36px; }
+}
+@media (max-height: 360px) {
+  .quality img, .preview { display: none; }
+}

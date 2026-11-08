@@ -1,0 +1,87 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Download file info · Surge</title>
+    <link rel="stylesheet" href="popup.css" />
+    <link rel="stylesheet" href="dialog.css" />
+  </head>
+  <body class="dialog">
+<main class="top">
+    <header>
+      <img src="icons/icon-32.png" alt="" width="22" height="22" />
+      <strong>Download file info</strong>
+      <span id="host" class="pill">…</span>
+    </header>
+
+    <label class="col">
+      <span>Save as</span>
+      <input type="text" id="filename" placeholder="Use the server's name" autofocus />
+    </label>
+    <div class="col">
+      <span>Save to <em id="dirHint" class="hint"></em></span>
+      <div class="folder">
+        <input type="text" id="dir" placeholder="Main download folder" spellcheck="false" />
+        <button id="pickDir" type="button" title="Choose a folder">Change…</button>
+      </div>
+    </div>
+    </main>
+    <div class="scroll">
+    <label class="col">
+      <span>URL</span>
+      <input type="text" id="url" readonly />
+    </label>
+    <div class="col" id="previewRow" hidden>
+      <span>Video</span>
+      <div class="quality">
+        <div id="previewBox" class="preview"></div>
+        <div id="previewInfo" class="value"></div>
+      </div>
+    </div>
+    <div class="col" id="qualityRow" hidden>
+      <span>Quality <em id="site" class="hint"></em></span>
+      <div class="quality">
+        <img id="thumb" alt="" hidden />
+        <select id="quality" disabled><option>Reading formats…</option></select>
+      </div>
+      <span id="probeHint" class="hint" hidden>yt-dlp is still reading the page. You can start now; Surge then picks the best quality.</span>
+      <div class="grid2">
+        <label class="col" id="audioRow" hidden>
+          <span>Audio language</span>
+          <select id="audio"></select>
+        </label>
+        <label class="col">
+          <span>Save as type</span>
+          <select id="container"></select>
+        </label>
+      </div>
+    </div>
+    <div class="grid">
+      <label class="col">
+        <span>Connections</span>
+        <select id="connections"></select>
+      </label>
+      <label class="col">
+        <span>Speed limit</span>
+        <select id="speedLimit"></select>
+      </label>
+      <div class="col">
+        <span>Size</span>
+        <div id="size" class="value">unknown</div>
+      </div>
+    </div>
+
+    </div>
+    <p id="error" class="status bad" role="alert"></p>
+    <footer class="buttons">
+      <button id="browser" title="Let the browser download it instead">Use browser</button>
+      <span class="spacer"></span>
+      <button id="cancel">Cancel</button>
+      <button id="later" title="Add to Surge paused">Download later</button>
+      <button id="start" class="primary">Start download</button>
+    </footer>
+    <script src="folders.js"></script>
+    <script src="dialog.js"></script>
+  </body>
+</html>

@@ -1,0 +1,11 @@
+body.log { width: auto; max-width: 1100px; margin: 0 auto; padding: 16px 20px; }
+body.log header { gap: 6px; }
+body.log header strong { font-size: 16px; }
+body.log h2 { margin-top: 16px; }
+body.log .hint { text-align: left; }
+body.log .hint label { margin-left: 12px; white-space: nowrap; }
+pre {
+  margin: 0; padding: 10px; max-height: 420px; overflow: auto; border: 1px solid var(--border); border-radius: 6px;
+  font: 12px/1.45 ui-monospace, monospace; white-space: pre-wrap; word-break: break-all;
+}
+pre .error { color: var(--bad); }

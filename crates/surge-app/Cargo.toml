@@ -1,0 +1,22 @@
+[package]
+name = "surge-app"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Surge download manager (GPUI desktop app)"
+
+[[bin]]
+name = "surge"
+path = "src/main.rs"
+
+[dependencies]
+tokio.workspace = true
+surge-core.workspace = true
+anyhow.workspace = true
+dirs.workspace = true
+serde_json.workspace = true
+gpui-kit = "0.9"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+ksni = "0.3"
+png = "0.18"

@@ -1,0 +1,15 @@
+{
+  "name": "surge-extension",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "build": "./build.sh",
+    "lint": "web-ext lint --source-dir dist/firefox",
+    "run:firefox": "web-ext run --source-dir dist/firefox",
+    "run:chromium": "web-ext run --target chromium --source-dir dist/chrome"
+  },
+  "devDependencies": {
+    "web-ext": "^10.8.0"
+  }
+}
