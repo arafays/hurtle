@@ -30,9 +30,9 @@ let isMedia = false;
 function fileCategory() {
   if (isMedia) {
     const c = qualities?.[$("quality").value];
-    return SurgeFolders.mediaCategory(c?.format, $("container").value || (c?.audioOnly ? "m4a" : ""));
+    return HurtleFolders.mediaCategory(c?.format, $("container").value || (c?.audioOnly ? "m4a" : ""));
   }
-  return SurgeFolders.category($("filename").value);
+  return HurtleFolders.category($("filename").value);
 }
 
 /** Show the folder this download will go to (until the user picks one). */
@@ -40,8 +40,8 @@ function updateDir() {
   if (dirChosen || !settings) return;
   const cat = fileCategory();
   const own = cat && settings.type_dirs?.[cat];
-  $("dir").value = SurgeFolders.short(SurgeFolders.dirFor(settings, cat));
-  const label = SurgeFolders.CATEGORIES.find(([id]) => id === cat)?.[1];
+  $("dir").value = HurtleFolders.short(HurtleFolders.dirFor(settings, cat));
+  const label = HurtleFolders.CATEGORIES.find(([id]) => id === cat)?.[1];
   $("dirHint").textContent = own ? `· ${label} folder` : label ? `· main folder (no ${label} folder set)` : "· main folder";
 }
 
@@ -61,7 +61,7 @@ $("pickDir").onclick = async () => {
   const r = await api.runtime.sendMessage({ type: "pick-folder", title: "Save this download to" }).catch((e) => ({ ok: false, error: String(e) }));
   $("pickDir").disabled = false;
   if (r?.folder) {
-    $("dir").value = SurgeFolders.short(r.folder);
+    $("dir").value = HurtleFolders.short(r.folder);
     dirChosen = true;
     $("dirHint").textContent = "· this download only";
   } else if (!r?.ok) {
@@ -87,10 +87,10 @@ async function init() {
   if (p.media) loadQualities(p);
   else if (/^(video|audio)\//.test(p.mime || "") || /\.(mp4|m4v|webm|mkv|mov|mp3|m4a|ogg|opus)(?:$|[?#])/i.test(p.url)) preview(p);
 
-  // Defaults come from the Surge app's settings when it's reachable.
+  // Defaults come from the Hurtle app's settings when it's reachable.
   const r = await api.runtime.sendMessage({ type: "app-settings" }).catch(() => null);
   const def = r?.settings?.connections || 8;
-  $("host").textContent = r?.ok ? (r.settings ? "Surge ready" : "Surge will start") : "host missing";
+  $("host").textContent = r?.ok ? (r.settings ? "Hurtle ready" : "Hurtle will start") : "host missing";
   $("host").className = "pill " + (r?.ok ? "ok" : "bad");
   for (const n of [1, 2, 4, 6, 8, 12, 16, 24, 32]) {
     const o = new Option(`${n}`, n, false, n === def);
@@ -198,8 +198,8 @@ async function loadQualities(p) {
   if (!r?.ok || !r.media) {
     q.add(new Option("Best available", ""));
     $("error").textContent = r?.error
-      ? `Couldn't list formats: ${r.error}. You can still start: Surge picks the best quality.`
-      : "Couldn't list formats. You can still start: Surge picks the best quality.";
+      ? `Couldn't list formats: ${r.error}. You can still start: Hurtle picks the best quality.`
+      : "Couldn't list formats. You can still start: Hurtle picks the best quality.";
     $("size").textContent = "unknown";
     oneTrack();
     return;

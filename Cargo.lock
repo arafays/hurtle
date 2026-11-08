@@ -2880,6 +2880,58 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6dbf3de79e51f3d586ab4cb9d5c3e2c14aa28ed23d180cf89b4df0454a69cc87"
 
 [[package]]
+name = "hurtle-app"
+version = "0.2.0"
+dependencies = [
+ "anyhow",
+ "dirs 6.0.0",
+ "gpui-kit",
+ "hurtle-core",
+ "ksni",
+ "png 0.18.1",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
+name = "hurtle-cli"
+version = "0.2.0"
+dependencies = [
+ "anyhow",
+ "hurtle-core",
+ "serde_json",
+]
+
+[[package]]
+name = "hurtle-core"
+version = "0.2.0"
+dependencies = [
+ "anyhow",
+ "dirs 6.0.0",
+ "futures-util",
+ "libc",
+ "lzma-rust2",
+ "percent-encoding",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tar",
+ "tokio",
+ "tokio-util",
+ "zip",
+]
+
+[[package]]
+name = "hurtle-host"
+version = "0.2.0"
+dependencies = [
+ "hurtle-core",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "hybrid-array"
 version = "0.4.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6270,58 +6322,6 @@ name = "subtle"
 version = "2.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
-
-[[package]]
-name = "surge-app"
-version = "0.1.1"
-dependencies = [
- "anyhow",
- "dirs 6.0.0",
- "gpui-kit",
- "ksni",
- "png 0.18.1",
- "serde_json",
- "surge-core",
- "tokio",
-]
-
-[[package]]
-name = "surge-cli"
-version = "0.1.1"
-dependencies = [
- "anyhow",
- "serde_json",
- "surge-core",
-]
-
-[[package]]
-name = "surge-core"
-version = "0.1.1"
-dependencies = [
- "anyhow",
- "dirs 6.0.0",
- "futures-util",
- "libc",
- "lzma-rust2",
- "percent-encoding",
- "reqwest",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "tar",
- "tokio",
- "tokio-util",
- "zip",
-]
-
-[[package]]
-name = "surge-host"
-version = "0.1.1"
-dependencies = [
- "serde",
- "serde_json",
- "surge-core",
-]
 
 [[package]]
 name = "svg_fmt"

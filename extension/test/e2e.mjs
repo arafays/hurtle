@@ -1,11 +1,11 @@
 // End-to-end test: headless Chromium with the extension loaded, a throwaway
-// profile whose NativeMessagingHosts points at target/debug/surge-host, a
-// local page with a <video>, and a fresh Surge app instance.
+// profile whose NativeMessagingHosts points at target/debug/hurtle-host, a
+// local page with a <video>, and a fresh Hurtle app instance.
 //
 //   mise run ext:e2e
 //
 // Checks: media sniffing → overlay button → dialog named from og:title →
-// "Start download" reaches Surge with the chosen connections/limit; and
+// "Start download" reaches Hurtle with the chosen connections/limit; and
 // a browser download is intercepted → dialog → "Download later".
 
 import { spawn, execFileSync } from "node:child_process";
@@ -17,7 +17,7 @@ import { join, resolve } from "node:path";
 const root = resolve(import.meta.dirname, "../..");
 const ext = join(root, "extension/dist/chrome");
 const chromeId = readFileSync(join(root, "extension/chrome-id.txt"), "utf8").trim();
-const work = mkdtempSync(join(tmpdir(), "surge-e2e-"));
+const work = mkdtempSync(join(tmpdir(), "hurtle-e2e-"));
 const profile = join(work, "profile");
 const data = join(work, "data");
 const downloads = join(work, "downloads");
@@ -27,11 +27,11 @@ writeFileSync(join(data, "settings.json"), JSON.stringify({ download_dir: downlo
 // Native host registered only inside this profile.
 mkdirSync(join(profile, "NativeMessagingHosts"));
 writeFileSync(
-  join(profile, "NativeMessagingHosts/com.surge.downloader.json"),
+  join(profile, "NativeMessagingHosts/io.github.arafays.hurtle.json"),
   JSON.stringify({
-    name: "com.surge.downloader",
-    description: "Surge (e2e)",
-    path: join(root, "target/debug/surge-host"),
+    name: "io.github.arafays.hurtle",
+    description: "Hurtle (e2e)",
+    path: join(root, "target/debug/hurtle-host"),
     type: "stdio",
     allowed_origins: [`chrome-extension://${chromeId}/`],
   }),
@@ -93,9 +93,9 @@ const server = createServer((req, res) => {
 await new Promise((r) => server.listen(0, "127.0.0.1", r));
 const base = `http://127.0.0.1:${server.address().port}`;
 
-const env = { ...process.env, SURGE_DATA: data, SURGE_APP: join(root, "target/debug/surge"), SURGE_SOCKET: join(work, "surge.sock"), SURGE_APP_ID: "surge-test" };
+const env = { ...process.env, HURTLE_DATA: data, HURTLE_APP: join(root, "target/debug/hurtle"), HURTLE_SOCKET: join(work, "hurtle.sock"), HURTLE_APP_ID: "hurtle-test" };
 const port = 9300 + Math.floor(Math.random() * 500);
-const browser = process.env.SURGE_BROWSER || "chromium";
+const browser = process.env.HURTLE_BROWSER || "chromium";
 console.log(`browser: ${browser}`);
 const chrome = spawn(
   browser,
@@ -192,7 +192,7 @@ try {
   // 2. Hover the video → overlay button appears; click it → dialog opens.
   await send("Input.dispatchMouseEvent", { type: "mouseMoved", x: 300, y: 180 }, page);
   const rect = await until(
-    () => evaluate(page, `(() => { const h = document.querySelector('surge-overlay'); if (!h || h.style.display !== 'block') return null; const r = h.getBoundingClientRect(); return { x: r.left, y: r.top, w: r.width, h: r.height }; })()`),
+    () => evaluate(page, `(() => { const h = document.querySelector('hurtle-overlay'); if (!h || h.style.display !== 'block') return null; const r = h.getBoundingClientRect(); return { x: r.left, y: r.top, w: r.width, h: r.height }; })()`),
     5000,
     "overlay button",
   );
@@ -202,7 +202,7 @@ try {
     const v = document.getElementById('v'); v.style.marginTop = '200px';
     v.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
     await new Promise(r => setTimeout(r, 100));
-    const h = document.querySelector('surge-overlay').getBoundingClientRect();
+    const h = document.querySelector('hurtle-overlay').getBoundingClientRect();
     const vr = v.getBoundingClientRect();
     v.style.marginTop = '0px';
     v.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
@@ -210,7 +210,7 @@ try {
     return { bottom: h.bottom, videoTop: vr.top };
   })()`);
   check(above.bottom <= above.videoTop, `button sits above the video (button bottom ${Math.round(above.bottom)} ≤ video top ${Math.round(above.videoTop)})`);
-  const rect2 = await evaluate(page, `(() => { const r = document.querySelector('surge-overlay').getBoundingClientRect(); return { x: r.left, y: r.top }; })()`);
+  const rect2 = await evaluate(page, `(() => { const r = document.querySelector('hurtle-overlay').getBoundingClientRect(); return { x: r.left, y: r.top }; })()`);
   rect.x = rect2.x; rect.y = rect2.y;
   const cx = rect.x + 30;
   const cy = rect.y + 14;
@@ -234,14 +234,14 @@ try {
      document.getElementById('start').click(); true`,
   );
 
-  // The host launches Surge (this test's own instance) and adds the download.
+  // The host launches Hurtle (this test's own instance) and adds the download.
   const store = join(data, "downloads.json");
   const added = await until(() => {
     if (!existsSync(store)) return null;
     const list = JSON.parse(readFileSync(store, "utf8"));
     return list.find((d) => d.filename === "My Test Video.mp4");
-  }, 20000, "download in Surge");
-  check(added.connections === 4 && added.speed_limit === 2048 * 1024, `Surge got it: ${added.connections} connections, limit ${added.speed_limit} B/s`);
+  }, 20000, "download in Hurtle");
+  check(added.connections === 4 && added.speed_limit === 2048 * 1024, `Hurtle got it: ${added.connections} connections, limit ${added.speed_limit} B/s`);
   check(added.headers.some(([k, v]) => k === "Referer" && v.endsWith("/page")), "referrer forwarded");
 
   // 2b. The page also loads an HLS master playlist → the menu lists the
@@ -266,7 +266,7 @@ try {
     const { root: doc } = await send("DOM.getDocument", { depth: -1, pierce: true }, page);
     const texts = [];
     const walk = (n) => {
-      if (n.nodeName === "SURGE-OVERLAY") {
+      if (n.nodeName === "HURTLE-OVERLAY") {
         const collect = (x) => {
           if (x.nodeType === 3) texts.push(x.nodeValue);
           if (x.nodeName === "STYLE") return;
@@ -288,7 +288,7 @@ try {
   check(/^\d+ (sizes|found)$|^1 size$/.test(count || ""), `button shows the count and a caret: "${count} ▾"`);
   if (process.env.E2E_DEBUG) console.log(menuText);
   check(menuText.includes("My Test Video"), "menu items are named after the page, not the file");
-  const shots = process.env.SURGE_SHOTS;
+  const shots = process.env.HURTLE_SHOTS;
   const shoot = async (session, name) => {
     const { data } = await send("Page.captureScreenshot", { format: "png" }, session);
     writeFileSync(join(shots, name), Buffer.from(data, "base64"));
@@ -370,23 +370,23 @@ try {
   const later = await until(() => {
     const list = JSON.parse(readFileSync(store, "utf8"));
     return list.find((d) => d.url.endsWith("/files/archive.zip"));
-  }, 10000, "intercepted download in Surge");
-  check(later.status?.state === "paused", `intercepted browser download queued paused in Surge (status ${JSON.stringify(later.status)})`);
+  }, 10000, "intercepted download in Hurtle");
+  check(later.status?.state === "paused", `intercepted browser download queued paused in Hurtle (status ${JSON.stringify(later.status)})`);
   const browserItems = await evaluate(swSession, `chrome.downloads.search({ urlRegex: 'archive' }).then(r => r.length)`);
   check(browserItems === 0, "browser's own copy was cancelled and erased");
 
   // 4. Global settings round-trip through the host.
-  const r = await evaluate(swSession, `chrome.runtime.sendNativeMessage('com.surge.downloader', { type: 'settings', speedLimit: 1048576 })`);
+  const r = await evaluate(swSession, `chrome.runtime.sendNativeMessage('io.github.arafays.hurtle', { type: 'settings', speedLimit: 1048576 })`);
   check(r.ok && r.settings.speed_limit === 1048576, "global speed limit set via native host");
 
   // Folders by type, set the way the popup does: videos get their own.
   const videos = join(work, "videos");
-  const f = await evaluate(swSession, `chrome.runtime.sendNativeMessage('com.surge.downloader', { type: 'settings', typeDirs: { video: ${JSON.stringify(videos)}, image: '' } })`);
+  const f = await evaluate(swSession, `chrome.runtime.sendNativeMessage('io.github.arafays.hurtle', { type: 'settings', typeDirs: { video: ${JSON.stringify(videos)}, image: '' } })`);
   check(f.ok && f.settings.type_dirs.video === videos && !f.settings.type_dirs.image, "video folder set via native host");
-  const bad = await evaluate(swSession, `chrome.runtime.sendNativeMessage('com.surge.downloader', { type: 'settings', typeDirs: { video: 'relative/dir' } })`);
+  const bad = await evaluate(swSession, `chrome.runtime.sendNativeMessage('io.github.arafays.hurtle', { type: 'settings', typeDirs: { video: 'relative/dir' } })`);
   check(!bad.ok && /full path/.test(bad.error), `a relative folder is refused: ${bad.error}`);
 
-  // 5. HLS stream → dialog in video mode: yt-dlp lists qualities, Surge fetches and muxes it.
+  // 5. HLS stream → dialog in video mode: yt-dlp lists qualities, Hurtle fetches and muxes it.
   await evaluate(
     swSession,
     `openDialog({ url: '${base}/hls/stream.m3u8', media: true, filename: 'HLS Clip', referrer: '${base}/page' }).then(() => true)`,
@@ -417,18 +417,18 @@ try {
   check(vid.path?.startsWith(videos + "/"), `video saved in the Videos folder: ${vid.path}`);
   const dur = Number(execFileSync("ffprobe", ["-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", vid.path]).toString());
   check(Math.abs(dur - 6) < 0.5, `merged file plays: ${dur.toFixed(2)}s`);
-  // 6. Debug logs: the extension's own and Surge's file (host, yt-dlp, app).
+  // 6. Debug logs: the extension's own and Hurtle's file (host, yt-dlp, app).
   const extLog = (await evaluate(swSession, `chrome.storage.local.get('debugLog').then(r => r.debugLog || [])`)).join("\n");
   check(/native probe .*ok=true/.test(extLog) && /dialog start/.test(extLog), "extension debug log records probes and dialog actions");
-  const fileLog = readFileSync(join(data, "logs/surge.log"), "utf8");
+  const fileLog = readFileSync(join(data, "logs/hurtle.log"), "utf8");
   if (process.env.E2E_DEBUG) console.log(fileLog);
   check(/host\[\d+\] probe .* ok in .*delivered/.test(fileLog), "host logs each request and whether the reply was delivered");
-  check(/yt-dlp\[\d+\] probe exited/.test(fileLog) && /app\[\d+\] #\d+ \S+ completed/.test(fileLog), "yt-dlp runs and finished downloads are in surge.log");
+  check(/yt-dlp\[\d+\] probe exited/.test(fileLog) && /app\[\d+\] #\d+ \S+ completed/.test(fileLog), "yt-dlp runs and finished downloads are in hurtle.log");
   check(!/Cookie:|PHPSESSID/.test(fileLog + extLog), "no cookie values in the logs");
   const { targetId: logId } = await send("Target.createTarget", { url: `chrome-extension://${chromeId}/log.html` });
   const ls = await attach(logId);
   const logPage = await until(() => evaluate(ls, `(() => { const t = document.getElementById('host').textContent; return t.includes('probe') ? { env: document.getElementById('env').textContent, ext: document.getElementById('ext').textContent } : null; })()`), 10000, "debug log page");
-  check(/Native host +reachable/.test(logPage.env) && /Site access +granted/.test(logPage.env) && logPage.ext.includes("native probe"), "debug log page shows setup, extension and Surge logs");
+  check(/Native host +reachable/.test(logPage.env) && /Site access +granted/.test(logPage.env) && logPage.ext.includes("native probe"), "debug log page shows setup, extension and Hurtle logs");
   if (shots) await shoot(ls, "log.png");
 } catch (e) {
   failures++;
@@ -437,8 +437,8 @@ try {
   ws.close();
   chrome.kill();
   server.close();
-  // Stop the Surge instance this test started (matched by its private socket dir).
-  spawn("pkill", ["-f", `^${join(root, "target/debug/surge")}$`]).on("exit", () => {
+  // Stop the Hurtle instance this test started (matched by its private socket dir).
+  spawn("pkill", ["-f", `^${join(root, "target/debug/hurtle")}$`]).on("exit", () => {
     setTimeout(() => rmSync(work, { recursive: true, force: true }), 500);
   });
 }

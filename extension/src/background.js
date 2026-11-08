@@ -1,5 +1,5 @@
-// Surge browser extension (background).
-//  - Catches browser downloads and hands them to the Surge app.
+// Hurtle browser extension (background).
+//  - Catches browser downloads and hands them to the Hurtle app.
 //  - Sniffs media responses (video/audio files) per tab, like IDM's
 //    "Download this video" panel.
 //  - Opens the "Download file info" dialog (rename, connections, speed limit).
@@ -7,7 +7,7 @@
 // state lives in storage.session so it survives the worker being unloaded.
 
 const api = globalThis.browser ?? globalThis.chrome;
-const HOST = "com.surge.downloader";
+const HOST = "io.github.arafays.hurtle";
 const DEFAULTS = {
   enabled: true, // catch browser downloads
   showDialog: true, // ask before each download (IDM's "Download file info")
@@ -84,9 +84,9 @@ async function cookieHeader(url, storeId) {
 
 // ---------- debug log ----------
 // The last 400 lines live in storage.local ("debugLog"); the popup's
-// "Debug log" page shows them. Errors and calls to Surge are always kept.
+// "Debug log" page shows them. Errors and calls to Hurtle are always kept.
 // With the "Detailed debug log" switch on, so is everything else, and the
-// lines also go to Surge's own log file ($SURGE_DATA/logs/surge.log).
+// lines also go to Hurtle's own log file ($HURTLE_DATA/logs/hurtle.log).
 const LOG_MAX = 400;
 let logQueue = Promise.resolve();
 let hostBatch = [];
@@ -127,7 +127,7 @@ function dlog(event, data, level = "info") {
     .catch(() => {});
 }
 
-/** Append the pending lines to Surge's log file (not itself logged). */
+/** Append the pending lines to Hurtle's log file (not itself logged). */
 async function flushToHost() {
   const append = hostBatch.splice(0);
   if (append.length) await api.runtime.sendNativeMessage(HOST, { type: "log", append }).catch(() => {});
@@ -197,8 +197,8 @@ async function pageSizes(pageUrl, cookieStoreId) {
   return { ok: true, site: r.media.site, title: r.media.title, duration: r.media.duration, thumbnail: r.media.thumbnail, sizes, audio: r.media.audio?.length || 0 };
 }
 
-/** Send one download to the Surge app. */
-async function sendToSurge(p) {
+/** Send one download to the Hurtle app. */
+async function sendToHurtle(p) {
   const msg = {
     type: "add",
     url: p.url,
@@ -218,7 +218,7 @@ async function sendToSurge(p) {
   const name = sanitize(basename(p.filename));
   if (name) msg.filename = name;
   const reply = await native(msg);
-  if (!reply?.ok) throw new Error(reply?.error || "Surge rejected the download");
+  if (!reply?.ok) throw new Error(reply?.error || "Hurtle rejected the download");
   return reply;
 }
 
@@ -277,7 +277,7 @@ async function resolvePending(key, action, choice = {}) {
   }
   // start / later
   try {
-    const reply = await sendToSurge({ ...p, ...choice, paused: action === "later" });
+    const reply = await sendToHurtle({ ...p, ...choice, paused: action === "later" });
     if (dl != null) await dropBrowserDownload(dl);
     await setStatus(true, `Sent ${choice.filename || p.filename || p.url}`);
     flashBadge("✓", "#16a34a");
@@ -364,7 +364,7 @@ api.downloads.onCreated.addListener(async (item) => {
   if (skip.length && skip.includes(extOf(url, item.mime))) return;
 
   dlog("browser download caught", { url: safeUrl(url), mime: item.mime, size: item.totalBytes });
-  // Hold the browser's copy while Surge (or the user) decides.
+  // Hold the browser's copy while Hurtle (or the user) decides.
   await api.downloads.pause(item.id).catch(() => {});
   const pending = {
     url,
@@ -380,7 +380,7 @@ api.downloads.onCreated.addListener(async (item) => {
     return;
   }
   try {
-    await sendToSurge(pending);
+    await sendToHurtle(pending);
     await dropBrowserDownload(item.id);
     await setStatus(true, `Sent ${pending.filename || url}`);
     flashBadge("✓", "#16a34a");
@@ -557,14 +557,14 @@ api.runtime.onInstalled.addListener(async () => {
   // Promise form works in both Chrome (MV3) and Firefox.
   await api.contextMenus.removeAll();
   api.contextMenus.create({
-    id: "surge-download",
-    title: "Download with Surge",
+    id: "hurtle-download",
+    title: "Download with Hurtle",
     contexts: ["link", "video", "audio", "image"],
   });
 });
 
 api.contextMenus.onClicked.addListener(async (info, tab) => {
-  if (info.menuItemId !== "surge-download") return;
+  if (info.menuItemId !== "hurtle-download") return;
   const url = info.linkUrl || info.srcUrl;
   if (!url || !/^https?:/i.test(url)) return;
   const isMedia = info.mediaType === "video" || info.mediaType === "audio";
@@ -595,7 +595,7 @@ api.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     case "debug-clear":
       return reply((logQueue = logQueue.then(() => api.storage.local.set({ debugLog: [] }))).then(() => ({ ok: true })));
     case "debug-host-log":
-      // Surge's own log file (host, yt-dlp and app lines), read by the host.
+      // Hurtle's own log file (host, yt-dlp and app lines), read by the host.
       return reply(flushToHost().then(() => api.runtime.sendNativeMessage(HOST, { type: "log", tail: msg.tail || 200000 })));
     case "ping":
     case "show":

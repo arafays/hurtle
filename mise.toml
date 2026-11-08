@@ -16,21 +16,21 @@ actionlint = "1.7"
 
 [env]
 # Keep dev runs out of your real download list/settings.
-SURGE_DATA = "{{config_root}}/.dev-data"
+HURTLE_DATA = "{{config_root}}/.dev-data"
 # The window manager can tell dev/test windows apart (see CLAUDE.md).
-SURGE_APP_ID = "surge-dev"
+HURTLE_APP_ID = "hurtle-dev"
 
 [tasks.dev]
 description = "Run the desktop app (debug build) with dev data"
-run = "cargo run -p surge-app --bin surge -- {{arg(name='url', default='')}}"
+run = "cargo run -p hurtle-app --bin hurtle -- {{arg(name='url', default='')}}"
 
 [tasks.build]
 description = "Release build of app, native host and CLI"
-run = "cargo build --release -p surge-app -p surge-host -p surge-cli"
+run = "cargo build --release -p hurtle-app -p hurtle-host -p hurtle-cli"
 
 [tasks.test]
 description = "Engine unit tests"
-run = "cargo test -p surge-core"
+run = "cargo test -p hurtle-core"
 
 [tasks.lint]
 description = "clippy + extension lint"
@@ -48,7 +48,7 @@ run = "cargo fmt --all --check"
 description = "What CI runs per OS: clippy -D warnings + engine tests (locked)"
 run = [
   "cargo clippy --workspace --all-targets --locked -- -D warnings",
-  "cargo test -p surge-core --locked",
+  "cargo test -p hurtle-core --locked",
 ]
 
 [tasks."check:cross"]
@@ -58,7 +58,7 @@ run = "scripts/cross-check.sh"
 
 [tasks.serve]
 description = "Throttled test server: serve FILE at N KiB/s per connection (default 512)"
-run = "cargo run --release -p surge-core --example throttle_server -- {{arg(name='file')}} 8090 {{arg(name='kbps', default='512')}}"
+run = "cargo run --release -p hurtle-core --example throttle_server -- {{arg(name='file')}} 8090 {{arg(name='kbps', default='512')}}"
 
 [tasks.bench]
 description = "Download from the throttle server with 1 then 8 connections (needs `mise run serve` running)"
@@ -66,9 +66,9 @@ run = """
 #!/usr/bin/env bash
 set -euo pipefail
 out=$(mktemp -d)
-cargo build -q --release -p surge-cli
+cargo build -q --release -p hurtle-cli
 for c in 1 8; do
-  ./target/release/surge-cli http://127.0.0.1:8090/bench -c $c -o "$out" 2>&1 | tr '\\r' '\\n' | tail -1
+  ./target/release/hurtle-cli http://127.0.0.1:8090/bench -c $c -o "$out" 2>&1 | tr '\\r' '\\n' | tail -1
   rm -f "$out"/*
 done
 rmdir "$out"
@@ -105,7 +105,7 @@ run = """
 #!/usr/bin/env bash
 set -euo pipefail
 target=$(rustc -vV | sed -n 's/^host: //p')
-cargo build --release --locked --target "$target" -p surge-app -p surge-host -p surge-cli
+cargo build --release --locked --target "$target" -p hurtle-app -p hurtle-host -p hurtle-cli
 scripts/package.sh "$target"
 """
 
@@ -116,10 +116,10 @@ run = "actionlint"
 [tasks."ext:e2e"]
 description = "Headless Chromium end-to-end test of extension + host + app"
 depends = ["ext:build"]
-run = "cargo build -p surge-app -p surge-host && node extension/test/e2e.mjs"
+run = "cargo build -p hurtle-app -p hurtle-host && node extension/test/e2e.mjs"
 
 [tasks."ext:e2e-firefox"]
-description = "Headless Firefox/Zen test of the dialog (uses the installed host; SURGE_FIREFOX=zen-bin, SURGE_VIDEO=<real page>)"
+description = "Headless Firefox/Zen test of the dialog (uses the installed host; HURTLE_FIREFOX=zen-bin, HURTLE_VIDEO=<real page>)"
 depends = ["ext:build"]
 run = "node extension/test/e2e-firefox.mjs"
 

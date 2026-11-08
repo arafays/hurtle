@@ -19,13 +19,13 @@ key=$(cat chrome-key.txt)
 common() {
   cat <<JSON
   "manifest_version": 3,
-  "name": "Surge Download Manager",
-  "short_name": "Surge",
+  "name": "Hurtle Download Manager",
+  "short_name": "Hurtle",
   "version": "$manifest_version",
-  "description": "Send downloads to Surge: multi-connection, resumable downloads and video sites.",
-  "homepage_url": "https://arafays.github.io/surge/",
+  "description": "Send downloads to Hurtle: multi-connection, resumable downloads and video sites.",
+  "homepage_url": "https://arafays.github.io/hurtle/",
   "icons": { "16": "icons/icon-16.png", "32": "icons/icon-32.png", "48": "icons/icon-48.png", "128": "icons/icon-128.png" },
-  "action": { "default_popup": "popup.html", "default_title": "Surge", "default_icon": { "16": "icons/icon-16.png", "32": "icons/icon-32.png" } },
+  "action": { "default_popup": "popup.html", "default_title": "Hurtle", "default_icon": { "16": "icons/icon-16.png", "32": "icons/icon-32.png" } },
   "permissions": ["downloads", "nativeMessaging", "cookies", "storage", "contextMenus", "webRequest", "tabs"],
   "host_permissions": ["<all_urls>"],
   "content_scripts": [{ "matches": ["<all_urls>"], "js": ["mediaui.js", "content.js"], "all_frames": true, "run_at": "document_idle" }],
@@ -58,18 +58,18 @@ JSON
   common
   cat <<'JSON'
   "background": { "scripts": ["background.js"] },
-  "browser_specific_settings": { "gecko": { "id": "surge@surge-downloader", "strict_min_version": "142.0", "update_url": "https://arafays.github.io/surge/updates.json", "data_collection_permissions": { "required": ["none"] } } }
+  "browser_specific_settings": { "gecko": { "id": "hurtle@arafays.github.io", "strict_min_version": "142.0", "update_url": "https://arafays.github.io/hurtle/updates.json", "data_collection_permissions": { "required": ["none"] } } }
 }
 JSON
 } > "$out/firefox/manifest.json"
 
 for target in chrome firefox; do
   python3 -I -c 'import json,sys; json.load(open(sys.argv[1]))' "$out/$target/manifest.json"
-  (cd "$out/$target" && python3 -I -m zipfile -c "../surge-$target-$version.zip" .)
+  (cd "$out/$target" && python3 -I -m zipfile -c "../hurtle-$target-$version.zip" .)
 done
 # The same Firefox zip as an .xpi, for "Install Add-on From File" in Firefox
 # forks that allow unsigned add-ons (Zen, Librewolf, Developer Edition, Nightly).
-cp "$out/surge-firefox-$version.zip" "$out/surge-firefox-$version-unsigned.xpi"
+cp "$out/hurtle-firefox-$version.zip" "$out/hurtle-firefox-$version-unsigned.xpi"
 
 for target in chrome firefox; do
   if [ -d "dist/$target" ] && mv --exchange -T "$out/$target" "dist/$target" 2>/dev/null; then

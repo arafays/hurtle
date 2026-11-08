@@ -1,7 +1,7 @@
 // Shared by the page overlay (content script) and the toolbar popup:
 // one row per detected video with a preview, resolution, length and size,
 // so you can tell which one you're about to download.
-globalThis.SurgeUI ??= (() => {
+globalThis.HurtleUI ??= (() => {
   function fmtSize(n) {
     if (!n) return "";
     const u = ["B", "KB", "MB", "GB", "TB"];

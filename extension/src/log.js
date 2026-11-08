@@ -1,4 +1,4 @@
-// The popup's "Open the debug log": the extension's own log, Surge's log
+// The popup's "Open the debug log": the extension's own log, Hurtle's log
 // file (app, native host, yt-dlp) and the setup facts that matter most.
 const api = globalThis.browser ?? globalThis.chrome;
 const $ = (id) => document.getElementById(id);
@@ -23,7 +23,7 @@ async function env() {
     `Extension      ${m.name} ${m.version} (${api.runtime.id})`,
     `Browser        ${navigator.userAgent}`,
     `Site access    ${access ? "granted on all sites" : "NOT GRANTED: the button over videos, media detection and cookies don't work. Grant it from the toolbar popup."}`,
-    `Native host    ${ping?.ok ? `reachable, surge-host ${ping.version}${ping.error ? ` (${ping.error})` : ", app running"}` : `NOT reachable: ${ping?.error || "no answer"}`}`,
+    `Native host    ${ping?.ok ? `reachable, hurtle-host ${ping.version}${ping.error ? ` (${ping.error})` : ", app running"}` : `NOT reachable: ${ping?.error || "no answer"}`}`,
     `Settings       ${JSON.stringify(Object.fromEntries(Object.entries(settings).filter(([k]) => !["debugLog", "status"].includes(k))))}`,
   ];
   if (settings.status) lines.push(`Last status    ${settings.status.ok ? "ok" : "error"}: ${settings.status.message} (${new Date(settings.status.at).toLocaleString()})`);
@@ -41,13 +41,13 @@ async function load() {
   show($("ext"), (ext?.debugLog || []).join("\n"));
   if (host?.ok) {
     show($("host"), host.log?.trimEnd());
-    $("hostPath").textContent = "(from $SURGE_DATA/logs/surge.log, e.g. ~/.local/share/surge/logs/surge.log)";
+    $("hostPath").textContent = "(from $HURTLE_DATA/logs/hurtle.log, e.g. ~/.local/share/hurtle/logs/hurtle.log)";
   } else {
-    show($("host"), `Couldn't read it through the native host: ${host?.error || "no answer"}. The file is $SURGE_DATA/logs/surge.log (usually ~/.local/share/surge/logs/surge.log).`);
+    show($("host"), `Couldn't read it through the native host: ${host?.error || "no answer"}. The file is $HURTLE_DATA/logs/hurtle.log (usually ~/.local/share/hurtle/logs/hurtle.log).`);
   }
 }
 
-const all = () => ["== Setup", $("env").textContent, "== Browser extension", $("ext").textContent, "== Surge", $("host").textContent].join("\n");
+const all = () => ["== Setup", $("env").textContent, "== Browser extension", $("ext").textContent, "== Hurtle", $("host").textContent].join("\n");
 
 $("refresh").onclick = load;
 $("copy").onclick = async () => {
@@ -58,7 +58,7 @@ $("copy").onclick = async () => {
 $("save").onclick = () => {
   const a = document.createElement("a");
   a.href = URL.createObjectURL(new Blob([all()], { type: "text/plain" }));
-  a.download = `surge-debug-${new Date().toISOString().replace(/[:.]/g, "-")}.txt`;
+  a.download = `hurtle-debug-${new Date().toISOString().replace(/[:.]/g, "-")}.txt`;
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 5000);
 };

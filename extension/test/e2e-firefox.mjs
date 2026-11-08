@@ -1,11 +1,11 @@
 // Firefox-family e2e (Firefox, Zen, LibreWolf…): a throwaway headless
 // profile driven over WebDriver BiDi, with the unsigned add-on installed.
 //
-//   SURGE_FIREFOX=/opt/zen-browser-bin/zen-bin node extension/test/e2e-firefox.mjs
+//   HURTLE_FIREFOX=/opt/zen-browser-bin/zen-bin node extension/test/e2e-firefox.mjs
 //
 // The native host is the one registered for the user (~/.mozilla), so run
-// `mise run install` first; Surge itself runs with a private SURGE_DATA and
-// SURGE_SOCKET, never the user's.
+// `mise run install` first; Hurtle itself runs with a private HURTLE_DATA and
+// HURTLE_SOCKET, never the user's.
 //
 // Checks: a video page → dialog → yt-dlp's qualities and audio row show up.
 
@@ -17,7 +17,7 @@ import { join, resolve } from "node:path";
 
 const root = resolve(import.meta.dirname, "../..");
 const xpi = join(root, "extension/dist", readdirSync(join(root, "extension/dist")).find((f) => f.endsWith("-unsigned.xpi")));
-const work = mkdtempSync(join(tmpdir(), "surge-ff-"));
+const work = mkdtempSync(join(tmpdir(), "hurtle-ff-"));
 const profile = join(work, "profile");
 const data = join(work, "data");
 mkdirSync(profile, { recursive: true });
@@ -26,7 +26,7 @@ writeFileSync(join(data, "settings.json"), JSON.stringify({ download_dir: join(d
 const UUID = "5a9e0000-0000-4000-8000-00000000e2e0";
 const prefs = {
   "xpinstall.signatures.required": false,
-  "extensions.webextensions.uuids": JSON.stringify({ "surge@surge-downloader": UUID }),
+  "extensions.webextensions.uuids": JSON.stringify({ "hurtle@arafays.github.io": UUID }),
   "extensions.autoDisableScopes": 0,
   "browser.shell.checkDefaultBrowser": false,
   "datareporting.policy.dataSubmissionEnabled": false,
@@ -43,10 +43,10 @@ const server = createServer((req, res) => {
     <video width="640" height="360" style="background:#000"></video></body>`);
 });
 await new Promise((r) => server.listen(0, "127.0.0.1", r));
-const pageUrl = process.env.SURGE_VIDEO || `http://127.0.0.1:${server.address().port}/watch`;
-const browser = process.env.SURGE_FIREFOX || "firefox";
+const pageUrl = process.env.HURTLE_VIDEO || `http://127.0.0.1:${server.address().port}/watch`;
+const browser = process.env.HURTLE_FIREFOX || "firefox";
 const port = 9800 + Math.floor(Math.random() * 150);
-const env = { ...process.env, SURGE_DATA: data, SURGE_SOCKET: join(work, "s.sock"), MOZ_NO_REMOTE: "1", MOZ_REMOTE_ALLOW_SYSTEM_ACCESS: "1", SURGE_APP_ID: "surge-test" };
+const env = { ...process.env, HURTLE_DATA: data, HURTLE_SOCKET: join(work, "s.sock"), MOZ_NO_REMOTE: "1", MOZ_REMOTE_ALLOW_SYSTEM_ACCESS: "1", HURTLE_APP_ID: "hurtle-test" };
 const ff = spawn(browser, ["--headless", "--profile", profile, "--no-remote", `--remote-debugging-port=${port}`], { env, stdio: ["ignore", "ignore", "pipe"] });
 let stderr = "";
 ff.stderr.on("data", (d) => (stderr += d));
@@ -109,14 +109,14 @@ let dialog;
 try {
   await send("session.new", { capabilities: { alwaysMatch: { webSocketUrl: true } } });
   const { extension } = await send("webExtension.install", { extensionData: { type: "archivePath", path: xpi } });
-  check(extension === "surge@surge-downloader", `add-on installed from ${xpi.split("/").pop()}`);
+  check(extension === "hurtle@arafays.github.io", `add-on installed from ${xpi.split("/").pop()}`);
 
   // A page with a <video> but no direct file: the button asks yt-dlp to read
-  // the page. SURGE_VIDEO (a real site) skips the button and asks from an
+  // the page. HURTLE_VIDEO (a real site) skips the button and asks from an
   // extension page instead, since every site places its player differently.
   const { context: tab } = await send("browsingContext.create", { type: "tab" });
   const before = new Set((await contexts()).map((c) => c.context));
-  if (process.env.SURGE_VIDEO) {
+  if (process.env.HURTLE_VIDEO) {
     await send("browsingContext.navigate", { context: tab, url: `moz-extension://${UUID}/log.html`, wait: "complete" });
     await evaluate(tab, `browser.runtime.sendMessage({ type: "download-page", pageUrl: ${JSON.stringify(pageUrl)}, title: "Placeholder title" })`);
     before.add(tab);
@@ -124,14 +124,14 @@ try {
     await send("browsingContext.navigate", { context: tab, url: pageUrl, wait: "complete" });
     let box = await until(async () => {
       await send("input.performActions", { context: tab, actions: [{ type: "pointer", id: "m", actions: [{ type: "pointerMove", x: 300, y: 200 }, { type: "pointerMove", x: 310, y: 210 }] }] });
-      return evaluate(tab, `(() => { const h = document.querySelector('surge-overlay'); if (!h || h.style.display !== 'block') return null; const r = h.getBoundingClientRect(); return { x: r.left, y: r.top }; })()`);
+      return evaluate(tab, `(() => { const h = document.querySelector('hurtle-overlay'); if (!h || h.style.display !== 'block') return null; const r = h.getBoundingClientRect(); return { x: r.left, y: r.top }; })()`);
     }, 15000, "the button over the video");
     check(true, "button shown over the video (content script runs)");
     // While yt-dlp reads the page the button opens a menu ("…"); this page
     // has no real video, so once that answer is in, a click goes to the dialog.
     await sleep(4000);
     // The button is right-aligned and its width changed with the count.
-    Object.assign(box, await evaluate(tab, `(() => { const r = document.querySelector('surge-overlay').getBoundingClientRect(); return { x: r.left, y: r.top }; })()`));
+    Object.assign(box, await evaluate(tab, `(() => { const r = document.querySelector('hurtle-overlay').getBoundingClientRect(); return { x: r.left, y: r.top }; })()`));
     await send("input.performActions", {
       context: tab,
       actions: [{ type: "pointer", id: "m", actions: [{ type: "pointerMove", x: Math.round(box.x + 30), y: Math.round(box.y + 14) }, { type: "pointerDown", button: 0 }, { type: "pointerUp", button: 0 }] }],
@@ -152,7 +152,7 @@ try {
   );
   console.log(`      after ${((Date.now() - started) / 1000).toFixed(1)}s: ${JSON.stringify(state)}`);
   check(state.audio?.length > 0, `audio row shown: ${state.audio?.join(" | ")}`);
-  if (process.env.SURGE_VIDEO) {
+  if (process.env.HURTLE_VIDEO) {
     check(!state.err && state.options.length > 2, `qualities listed: ${state.options.join(" | ")}`);
     check(state.name && state.name !== "Placeholder title", `named after the video: "${state.name}"`);
     // What the page button and popup show: sizes with their frame size.

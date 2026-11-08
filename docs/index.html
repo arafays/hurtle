@@ -3,11 +3,11 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Surge: download accelerator</title>
-<meta name="description" content="Surge splits every download across parallel connections, IDM-style, and saves videos from the browser with yt-dlp. Free and open source for Windows, macOS and Linux.">
-<meta property="og:title" content="Surge: download accelerator">
+<title>Hurtle: download accelerator</title>
+<meta name="description" content="Hurtle splits every download across parallel connections, IDM-style, and saves videos from the browser with yt-dlp. Free and open source for Windows, macOS and Linux.">
+<meta property="og:title" content="Hurtle: download accelerator">
 <meta property="og:description" content="Parallel, resumable downloads and one-click browser video saving. Windows, macOS and Linux.">
-<meta property="og:image" content="https://arafays.github.io/surge/assets/og.png">
+<meta property="og:image" content="https://arafays.github.io/hurtle/assets/og.png">
 <meta property="og:type" content="website">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="theme-color" content="#1a1b26">
@@ -197,13 +197,13 @@ footer a { color: var(--muted); }
 <body>
 <header class="top" id="top">
   <div class="wrap">
-    <a class="brand" href="#"><img src="assets/icon.svg" alt="" width="28" height="28">Surge</a>
+    <a class="brand" href="#"><img src="assets/icon.svg" alt="" width="28" height="28">Hurtle</a>
     <nav aria-label="Main">
       <a href="#how">How it works</a>
       <a href="#browser">Browser</a>
       <a href="#video">Video sites</a>
       <a href="#download">Download</a>
-      <a class="gh" href="https://github.com/arafays/surge">GitHub</a>
+      <a class="gh" href="https://github.com/arafays/hurtle">GitHub</a>
     </nav>
   </div>
 </header>
@@ -212,7 +212,7 @@ footer a { color: var(--muted); }
 <div class="hero">
   <div class="wrap hero-grid">
     <h1>Every connection, busy until the last byte.</h1>
-    <div class="race" id="race" role="figure" aria-label="Simulation of the measured benchmark: a 24 MB file takes 48.2 seconds over 1 connection and 6.6 seconds over Surge's 8 connections.">
+    <div class="race" id="race" role="figure" aria-label="Simulation of the measured benchmark: a 24 MB file takes 48.2 seconds over 1 connection and 6.6 seconds over Hurtle's 8 connections.">
       <div class="race-bar">
         <span class="title">24 MB file · server allows 512 KB/s per connection</span>
         <span class="spacer"></span>
@@ -231,7 +231,7 @@ footer a { color: var(--muted); }
       </div>
       <div class="lane multi" id="lane8">
         <div class="lane-head">
-          <span class="lane-name">Surge, 8 connections</span>
+          <span class="lane-name">Hurtle, 8 connections</span>
           <span class="lane-time" aria-live="off"><span class="t num">0.0 s</span><small>measured 6.6 s</small></span>
           <span class="lane-sub"><span class="got num">0.0</span> MB of 24 MB · <span class="act">0/8</span> connections · <span class="spd num">0 KB/s</span></span>
         </div>
@@ -244,13 +244,13 @@ footer a { color: var(--muted); }
       </div>
     </div>
     <div class="rest">
-    <p class="lede">Surge splits a download into segments over parallel connections. When a connection finishes, it takes over half of the slowest remaining segment, so all of them finish together. It also saves video from the browser through yt-dlp. Free and open source for Windows, macOS and Linux.</p>
+    <p class="lede">Hurtle splits a download into segments over parallel connections. When a connection finishes, it takes over half of the slowest remaining segment, so all of them finish together. It also saves video from the browser through yt-dlp. Free and open source for Windows, macOS and Linux.</p>
     <div class="cta">
       <a class="btn btn-primary" href="#download" id="cta-main">
         <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 3v10M5.5 8.5 10 13l4.5-4.5M4 17h12"/></svg>
-        <span>Get Surge</span>
+        <span>Get Hurtle</span>
       </a>
-      <a class="btn btn-ghost" href="https://github.com/arafays/surge">Source on GitHub</a>
+      <a class="btn btn-ghost" href="https://github.com/arafays/hurtle">Source on GitHub</a>
     </div>
     <p class="os-note" id="os-note">Windows · macOS · Linux · Chrome, Brave, Edge, Firefox, Zen</p>
     </div>
@@ -261,7 +261,7 @@ footer a { color: var(--muted); }
   <div class="wrap split">
     <div>
       <h2>No slow straggler at the end</h2>
-      <p class="intro">Many servers cap each connection. Surge opens several, each fetching its own byte range of the file, and keeps them all busy until the download is done.</p>
+      <p class="intro">Many servers cap each connection. Hurtle opens several, each fetching its own byte range of the file, and keeps them all busy until the download is done.</p>
       <ul class="points">
         <li><h3>Dynamic segmentation</h3><p>An idle connection first picks up an orphaned segment, then takes over a stalled one (no data for 10 s), and otherwise splits the segment with the longest time left. The cut is weighted so both halves finish together.</p></li>
         <li><h3>Ramps up, backs off</h3><p>A download starts with up to 4 connections and adds more while throughput keeps rising, up to your limit. A 429, 503 or connection error halves the count.</p></li>
@@ -271,7 +271,7 @@ footer a { color: var(--muted); }
       </ul>
     </div>
     <div class="sticky">
-      <figure class="shot"><img src="assets/app-expanded.webp" width="860" height="640" alt="Surge window with download rows expanded. Big Buck Bunny.mkv shows 6 connections receiving, each with its byte range, progress and speed of about 157 KB/s." loading="lazy"></figure>
+      <figure class="shot"><img src="assets/app-expanded.webp" width="860" height="640" alt="Hurtle window with download rows expanded. Big Buck Bunny.mkv shows 6 connections receiving, each with its byte range, progress and speed of about 157 KB/s." loading="lazy"></figure>
       <p class="shot-cap">An expanded row lists every connection: its byte range, progress and speed.</p>
     </div>
   </div>
@@ -301,17 +301,17 @@ footer a { color: var(--muted); }
 <section id="video">
   <div class="wrap split flip">
     <div>
-      <figure class="shot"><img src="assets/app-hero.webp" width="860" height="640" alt="Surge window with five downloads: a failed nightly build, a completed Product Demo.mp4 from an HLS stream, Big Buck Bunny.mkv at 900 KB/s over 6 connections, a completed PDF, and a Fedora ISO over 8 connections." loading="lazy"></figure>
+      <figure class="shot"><img src="assets/app-hero.webp" width="860" height="640" alt="Hurtle window with five downloads: a failed nightly build, a completed Product Demo.mp4 from an HLS stream, Big Buck Bunny.mkv at 900 KB/s over 6 connections, a completed PDF, and a Fedora ISO over 8 connections." loading="lazy"></figure>
       <p class="shot-cap">Plain files and streams in one list. Product Demo.mp4 came from an HLS stream through yt-dlp.</p>
     </div>
     <div>
       <h2>Video sites and streams, without the command line</h2>
-      <p class="intro">YouTube and most video sites serve many small pieces, often with audio and video apart. HLS and DASH work the same way. Surge hands these to <a href="https://github.com/yt-dlp/yt-dlp">yt-dlp</a>, and ffmpeg merges the result into one file.</p>
+      <p class="intro">YouTube and most video sites serve many small pieces, often with audio and video apart. HLS and DASH work the same way. Hurtle hands these to <a href="https://github.com/yt-dlp/yt-dlp">yt-dlp</a>, and ffmpeg merges the result into one file.</p>
       <div class="facts">
-        <div><h3>The original audio</h3><p>YouTube adds auto-dubbed tracks to many videos. Surge picks the original language and lists the others.</p></div>
+        <div><h3>The original audio</h3><p>YouTube adds auto-dubbed tracks to many videos. Hurtle picks the original language and lists the others.</p></div>
         <div><h3>Your format</h3><p>MP4 that plays everywhere, MKV, the original container, or audio only as MP3, M4A or Opus.</p></div>
         <div><h3>Real titles</h3><p>Files are named after the video, not <code>videoplayback?id=…</code>.</p></div>
-        <div><h3>Paste a link</h3><p>Paste a page link in the app. If the server answers with a page or a stream, Surge switches to yt-dlp.</p></div>
+        <div><h3>Paste a link</h3><p>Paste a page link in the app. If the server answers with a page or a stream, Hurtle switches to yt-dlp.</p></div>
       </div>
     </div>
   </div>
@@ -320,16 +320,16 @@ footer a { color: var(--muted); }
 <section id="themes">
   <div class="wrap">
     <h2>Looks like the rest of your desktop</h2>
-    <p class="intro">On Linux, Surge reads your system theme: Omarchy, Noctalia, pywal, wallust, Stylix, GTK and KDE colors, and re-themes live when they change. Everywhere else, pick light, dark or a preset.</p>
+    <p class="intro">On Linux, Hurtle reads your system theme: Omarchy, Noctalia, pywal, wallust, Stylix, GTK and KDE colors, and re-themes live when they change. Everywhere else, pick light, dark or a preset.</p>
     <div class="themes-ui" role="group" aria-label="Theme preview">
-      <button class="chip" type="button" aria-pressed="false" data-src="assets/app-hero.webp" data-alt="Surge in Tokyo Night"><i style="background:#7aa2f7"></i>Tokyo Night</button>
-      <button class="chip" type="button" aria-pressed="true" data-src="assets/app-gruvbox.webp" data-alt="Surge in Gruvbox Dark"><i style="background:#fe8019"></i>Gruvbox Dark</button>
-      <button class="chip" type="button" aria-pressed="false" data-src="assets/app-light.webp" data-alt="Surge in Rosé Pine Dawn"><i style="background:#907aa9"></i>Rosé Pine Dawn</button>
-      <button class="chip" type="button" aria-pressed="false" data-src="assets/app-solarized.webp" data-alt="Surge in Solarized Light"><i style="background:#268bd2"></i>Solarized Light</button>
-      <button class="chip" type="button" aria-pressed="false" data-src="assets/app-folders.webp" data-alt="Surge download folders panel in Nord: main folder plus Videos, Music, Pictures, Documents, Archives and Programs"><i style="background:#88c0d0"></i>Nord · folders</button>
+      <button class="chip" type="button" aria-pressed="false" data-src="assets/app-hero.webp" data-alt="Hurtle in Tokyo Night"><i style="background:#7aa2f7"></i>Tokyo Night</button>
+      <button class="chip" type="button" aria-pressed="true" data-src="assets/app-gruvbox.webp" data-alt="Hurtle in Gruvbox Dark"><i style="background:#fe8019"></i>Gruvbox Dark</button>
+      <button class="chip" type="button" aria-pressed="false" data-src="assets/app-light.webp" data-alt="Hurtle in Rosé Pine Dawn"><i style="background:#907aa9"></i>Rosé Pine Dawn</button>
+      <button class="chip" type="button" aria-pressed="false" data-src="assets/app-solarized.webp" data-alt="Hurtle in Solarized Light"><i style="background:#268bd2"></i>Solarized Light</button>
+      <button class="chip" type="button" aria-pressed="false" data-src="assets/app-folders.webp" data-alt="Hurtle download folders panel in Nord: main folder plus Videos, Music, Pictures, Documents, Archives and Programs"><i style="background:#88c0d0"></i>Nord · folders</button>
     </div>
     <div class="theme-stage">
-      <figure class="shot"><img id="theme-img" src="assets/app-gruvbox.webp" width="860" height="640" alt="Surge in Gruvbox Dark" loading="lazy"></figure>
+      <figure class="shot"><img id="theme-img" src="assets/app-gruvbox.webp" width="860" height="640" alt="Hurtle in Gruvbox Dark" loading="lazy"></figure>
       <p class="shot-cap" id="theme-cap" hidden>Each file type can go to its own folder: videos, music, pictures, documents, archives, programs.</p>
     </div>
   </div>
@@ -337,51 +337,51 @@ footer a { color: var(--muted); }
 
 <section id="download">
   <div class="wrap">
-    <h2>Get Surge</h2>
+    <h2>Get Hurtle</h2>
     <p class="intro">Download the app for your system, then add the extension to your browser. The first time the app runs, it registers itself with every Chrome-family browser and Firefox it finds.</p>
     <div class="dl-grid" id="dl-grid">
-      <a class="dl" data-os="windows" data-match="windows-x86_64\.zip$" href="https://github.com/arafays/surge/releases">
-        <span class="os"><b>Windows</b></span><span class="file">surge-…-windows-x86_64.zip</span>
-        <span class="how">Unzip anywhere and run <code>surge.exe</code>.</span>
+      <a class="dl" data-os="windows" data-match="windows-x86_64\.zip$" href="https://github.com/arafays/hurtle/releases">
+        <span class="os"><b>Windows</b></span><span class="file">hurtle-…-windows-x86_64.zip</span>
+        <span class="how">Unzip anywhere and run <code>hurtle.exe</code>.</span>
         <span class="get"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 3v10M5.5 8.5 10 13l4.5-4.5M4 17h12"/></svg>Download</span>
       </a>
-      <a class="dl" data-os="mac-arm" data-match="macos-aarch64\.zip$" href="https://github.com/arafays/surge/releases">
-        <span class="os"><b>macOS, Apple silicon</b></span><span class="file">surge-…-macos-aarch64.zip</span>
-        <span class="how">Move <code>Surge.app</code> to Applications and open it.</span>
+      <a class="dl" data-os="mac-arm" data-match="macos-aarch64\.zip$" href="https://github.com/arafays/hurtle/releases">
+        <span class="os"><b>macOS, Apple silicon</b></span><span class="file">hurtle-…-macos-aarch64.zip</span>
+        <span class="how">Move <code>Hurtle.app</code> to Applications and open it.</span>
         <span class="get"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 3v10M5.5 8.5 10 13l4.5-4.5M4 17h12"/></svg>Download</span>
       </a>
-      <a class="dl" data-os="mac-intel" data-match="macos-x86_64\.zip$" href="https://github.com/arafays/surge/releases">
-        <span class="os"><b>macOS, Intel</b></span><span class="file">surge-…-macos-x86_64.zip</span>
+      <a class="dl" data-os="mac-intel" data-match="macos-x86_64\.zip$" href="https://github.com/arafays/hurtle/releases">
+        <span class="os"><b>macOS, Intel</b></span><span class="file">hurtle-…-macos-x86_64.zip</span>
         <span class="how">Same as Apple silicon.</span>
         <span class="get"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 3v10M5.5 8.5 10 13l4.5-4.5M4 17h12"/></svg>Download</span>
       </a>
-      <a class="dl" data-os="linux" data-match="linux-x86_64\.tar\.gz$" href="https://github.com/arafays/surge/releases">
-        <span class="os"><b>Linux, x86‑64</b></span><span class="file">surge-…-linux-x86_64.tar.gz</span>
-        <span class="how">Extract and run <code>./surge</code>. Includes a tray icon.</span>
+      <a class="dl" data-os="linux" data-match="linux-x86_64\.tar\.gz$" href="https://github.com/arafays/hurtle/releases">
+        <span class="os"><b>Linux, x86‑64</b></span><span class="file">hurtle-…-linux-x86_64.tar.gz</span>
+        <span class="how">Extract and run <code>./hurtle</code>. Includes a tray icon.</span>
         <span class="get"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 3v10M5.5 8.5 10 13l4.5-4.5M4 17h12"/></svg>Download</span>
       </a>
-      <a class="dl" data-os="linux-arm" data-match="linux-aarch64\.tar\.gz$" href="https://github.com/arafays/surge/releases">
-        <span class="os"><b>Linux, ARM64</b></span><span class="file">surge-…-linux-aarch64.tar.gz</span>
-        <span class="how">Extract and run <code>./surge</code>.</span>
+      <a class="dl" data-os="linux-arm" data-match="linux-aarch64\.tar\.gz$" href="https://github.com/arafays/hurtle/releases">
+        <span class="os"><b>Linux, ARM64</b></span><span class="file">hurtle-…-linux-aarch64.tar.gz</span>
+        <span class="how">Extract and run <code>./hurtle</code>.</span>
         <span class="get"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 3v10M5.5 8.5 10 13l4.5-4.5M4 17h12"/></svg>Download</span>
       </a>
-      <a class="dl" data-os="ext-chrome" data-match="^surge-chrome-.*\.zip$" href="https://github.com/arafays/surge/releases">
-        <span class="os"><b>Chrome, Brave, Edge extension</b></span><span class="file">surge-chrome-….zip</span>
+      <a class="dl" data-os="ext-chrome" data-match="^hurtle-chrome-.*\.zip$" href="https://github.com/arafays/hurtle/releases">
+        <span class="os"><b>Chrome, Brave, Edge extension</b></span><span class="file">hurtle-chrome-….zip</span>
         <span class="how">Unzip, open <code>chrome://extensions</code>, turn on Developer mode, then Load unpacked.</span>
         <span class="get"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 3v10M5.5 8.5 10 13l4.5-4.5M4 17h12"/></svg>Download</span>
       </a>
-      <a class="dl" data-os="ext-firefox" data-match="^surge-firefox-.*\.xpi$" href="https://github.com/arafays/surge/releases">
-        <span class="os"><b>Firefox, Zen, LibreWolf add-on</b></span><span class="file">surge-firefox-….xpi</span>
+      <a class="dl" data-os="ext-firefox" data-match="^hurtle-firefox-.*\.xpi$" href="https://github.com/arafays/hurtle/releases">
+        <span class="os"><b>Firefox, Zen, LibreWolf add-on</b></span><span class="file">hurtle-firefox-….xpi</span>
         <span class="how">Zen and LibreWolf: set <code>xpinstall.signatures.required</code> to false, then Install Add-on From File. Firefox: load the extension zip from <code>about:debugging</code> (until the next restart).</span>
         <span class="get"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 3v10M5.5 8.5 10 13l4.5-4.5M4 17h12"/></svg>Download</span>
       </a>
     </div>
-    <p class="dl-meta" id="dl-meta">All files and SHA-256 checksums are on the <a href="https://github.com/arafays/surge/releases">releases page</a>.</p>
+    <p class="dl-meta" id="dl-meta">All files and SHA-256 checksums are on the <a href="https://github.com/arafays/hurtle/releases">releases page</a>.</p>
 
     <div class="req">
       <div>
         <h3>For video sites and streams</h3>
-        <p>Nothing to install. Surge uses yt-dlp, ffmpeg and deno if you have them, and otherwise fetches them from their official releases the first time you save a video (checksums verified). If you'd rather install them yourself:</p>
+        <p>Nothing to install. Hurtle uses yt-dlp, ffmpeg and deno if you have them, and otherwise fetches them from their official releases the first time you save a video (checksums verified). If you'd rather install them yourself:</p>
         <pre>winget install yt-dlp.yt-dlp Gyan.FFmpeg DenoLand.Deno
 brew install yt-dlp ffmpeg deno
 pacman -S yt-dlp ffmpeg deno</pre>
@@ -389,8 +389,8 @@ pacman -S yt-dlp ffmpeg deno</pre>
       <div>
         <h3>Good to know</h3>
         <ul>
-          <li>macOS builds are not notarized. If macOS says the app is damaged, run <code>xattr -dr com.apple.quarantine /Applications/Surge.app</code>.</li>
-          <li>The tray icon is Linux-only for now. On Windows and macOS, closing the window quits Surge, and the next browser download starts it again.</li>
+          <li>macOS builds are not notarized. If macOS says the app is damaged, run <code>xattr -dr com.apple.quarantine /Applications/Hurtle.app</code>.</li>
+          <li>The tray icon is Linux-only for now. On Windows and macOS, closing the window quits Hurtle, and the next browser download starts it again.</li>
           <li>Flatpak and Snap browsers can't start programs outside their sandbox. Use your distro's browser package.</li>
           <li>Firefox only keeps signed add-ons after a restart. Until a signed build ships, load it from <code>about:debugging</code>.</li>
         </ul>
@@ -398,8 +398,8 @@ pacman -S yt-dlp ffmpeg deno</pre>
       <div>
         <h3>Build from source</h3>
         <p>Tooling is pinned with <a href="https://mise.jdx.dev">mise</a>.</p>
-        <pre>git clone https://github.com/arafays/surge
-cd surge && mise install
+        <pre>git clone https://github.com/arafays/hurtle
+cd hurtle && mise install
 mise run install</pre>
       </div>
     </div>
@@ -409,11 +409,11 @@ mise run install</pre>
 
 <footer>
   <div class="wrap">
-    <a class="brand" href="#"><img src="assets/icon.svg" alt="" width="22" height="22">Surge</a>
+    <a class="brand" href="#"><img src="assets/icon.svg" alt="" width="22" height="22">Hurtle</a>
     <span>Rust engine, GPUI desktop app, MV3 extension.</span>
-    <a href="https://github.com/arafays/surge">Source</a>
-    <a href="https://github.com/arafays/surge/releases">Releases</a>
-    <a href="https://github.com/arafays/surge/issues">Issues</a>
+    <a href="https://github.com/arafays/hurtle">Source</a>
+    <a href="https://github.com/arafays/hurtle/releases">Releases</a>
+    <a href="https://github.com/arafays/hurtle/issues">Issues</a>
   </div>
 </footer>
 
@@ -626,16 +626,16 @@ mise run install</pre>
       card.classList.add("mine");
       card.querySelector(".os").insertAdjacentHTML("beforeend", '<span class="tag">Your system</span>');
     }
-    document.querySelector("#cta-main span").textContent = `Get Surge for ${label}`;
+    document.querySelector("#cta-main span").textContent = `Get Hurtle for ${label}`;
   }
-  fetch("https://api.github.com/repos/arafays/surge/releases/latest")
+  fetch("https://api.github.com/repos/arafays/hurtle/releases/latest")
     .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
     .then((rel) => {
       const assets = rel.assets || [];
       document.querySelectorAll(".dl").forEach((card) => {
         const re = new RegExp(card.dataset.match);
         const a = assets.find((x) => re.test(x.name) && !/unsigned/.test(x.name)) ||
-          (card.dataset.os === "ext-firefox" && assets.find((x) => /^surge-firefox-.*\.xpi$/.test(x.name)));
+          (card.dataset.os === "ext-firefox" && assets.find((x) => /^hurtle-firefox-.*\.xpi$/.test(x.name)));
         if (!a) return;
         card.href = a.browser_download_url;
         card.querySelector(".file").textContent = `${a.name} · ${MB(a.size)} MB`;

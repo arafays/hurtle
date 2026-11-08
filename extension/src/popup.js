@@ -5,7 +5,7 @@ const LIMITS = [
   [2048, "2 MB/s"], [5120, "5 MB/s"], [10240, "10 MB/s"], [20480, "20 MB/s"], [51200, "50 MB/s"],
 ];
 const $ = (id) => document.getElementById(id);
-document.head.append(Object.assign(document.createElement("style"), { textContent: SurgeUI.CSS }));
+document.head.append(Object.assign(document.createElement("style"), { textContent: HurtleUI.CSS }));
 
 function showStatus(ok, message) {
   $("status").textContent = message || "";
@@ -62,7 +62,7 @@ async function loadMedia() {
   for (const v of info?.videos || []) {
     if (/^https?:/i.test(v.src) && !list.some((m) => m.url === v.src)) list.push({ url: v.src, kind: "file", mime: null, size: null });
   }
-  const SUI = SurgeUI;
+  const SUI = HurtleUI;
   const title = info?.title || tab?.title || "";
   const ul = $("media");
   ul.replaceChildren();
@@ -131,7 +131,7 @@ async function loadApp() {
   if (!ping?.ok) {
     pill.textContent = "host not installed";
     pill.className = "pill bad";
-    showStatus(false, "Surge isn't set up for this browser yet: start the Surge app once (it registers itself), or run surge-host --register. Then restart the browser.");
+    showStatus(false, "Hurtle isn't set up for this browser yet: start the Hurtle app once (it registers itself), or run hurtle-host --register. Then restart the browser.");
   } else {
     pill.textContent = ping.error ? "app not running" : `connected v${ping.version}`;
     pill.className = "pill ok";
@@ -159,7 +159,7 @@ function loadFolders(s) {
   box.replaceChildren();
   const note = $("foldersNote");
   if (!s) {
-    note.textContent = "Folders show up once Surge is set up for this browser.";
+    note.textContent = "Folders show up once Hurtle is set up for this browser.";
     return;
   }
   const save = async (input, change) => {
@@ -167,7 +167,7 @@ function loadFolders(s) {
     const r = await api.runtime.sendMessage({ type: "app-settings", ...change }).catch((e) => ({ ok: false, error: String(e) }));
     input.classList.add(r?.ok ? "saved" : "failed");
     note.className = r?.ok ? "status" : "status bad";
-    note.textContent = r?.ok ? "Saved." : `Not saved: ${r?.error || "no answer from Surge"}`;
+    note.textContent = r?.ok ? "Saved." : `Not saved: ${r?.error || "no answer from Hurtle"}`;
     if (r?.ok) report("folders changed", change);
   };
   const add = (id, label, value, placeholder, changeFor) => {
@@ -178,7 +178,7 @@ function loadFolders(s) {
     input.type = "text";
     input.id = `dir-${id}`;
     input.spellcheck = false;
-    input.value = SurgeFolders.short(value || "");
+    input.value = HurtleFolders.short(value || "");
     input.placeholder = placeholder;
     input.title = value || placeholder;
     input.addEventListener("change", () => save(input, changeFor(input.value.trim())));
@@ -189,11 +189,11 @@ function loadFolders(s) {
     pick.addEventListener("click", async () => {
       pick.disabled = true;
       note.className = "status";
-      note.textContent = "Choose a folder in the window Surge opened…";
+      note.textContent = "Choose a folder in the window Hurtle opened…";
       const r = await api.runtime.sendMessage({ type: "pick-folder", title: `${label} folder` }).catch(() => null);
       pick.disabled = false;
       if (r?.folder) {
-        input.value = SurgeFolders.short(r.folder);
+        input.value = HurtleFolders.short(r.folder);
         save(input, changeFor(r.folder));
       } else {
         note.textContent = r?.ok ? "" : `Couldn't open the folder picker: ${r?.error || "no answer"}`;
@@ -202,8 +202,8 @@ function loadFolders(s) {
     box.append(l, input, pick);
   };
   add("main", "Main", s.download_dir, "~/Downloads", (v) => ({ downloadDir: v }));
-  const main = SurgeFolders.short(s.download_dir);
-  for (const [id, label] of SurgeFolders.CATEGORIES) {
+  const main = HurtleFolders.short(s.download_dir);
+  for (const [id, label] of HurtleFolders.CATEGORIES) {
     add(id, label, s.type_dirs?.[id], `Main (${main})`, (v) => ({ typeDirs: { [id]: v } }));
   }
 }
@@ -221,7 +221,7 @@ async function checkAccess() {
 $("open").addEventListener("click", async () => {
   const r = await api.runtime.sendMessage({ type: "show" });
   if (r?.ok) window.close();
-  else showStatus(false, r?.error || "Could not reach Surge");
+  else showStatus(false, r?.error || "Could not reach Hurtle");
 });
 
 async function loadOverlayState() {

@@ -3,7 +3,7 @@
 # zig stands in as the C compiler that aws-lc-sys' build script needs, and a stub
 # windres satisfies the Windows resource build. Nothing is linked or run.
 #   Windows: every crate (x86_64-pc-windows-gnu)
-#   macOS:   surge-core, surge-host, surge-cli (gpui's Metal shaders need Xcode,
+#   macOS:   hurtle-core, hurtle-host, hurtle-cli (gpui's Metal shaders need Xcode,
 #            so the GUI can only be checked on a Mac or in CI)
 set -euo pipefail
 root=$(cd "$(dirname "$0")/.." && pwd)
@@ -46,6 +46,6 @@ for pair in x86_64-apple-darwin:cc-mac-x64 aarch64-apple-darwin:cc-mac-arm; do
   tu=${t//-/_}
   echo "==> macOS ($t), core/host/cli"
   env "CC_$tu=$cc" "AR_$tu=ar" \
-    cargo clippy --locked -p surge-core -p surge-host -p surge-cli --all-targets --target "$t" -- -D warnings
+    cargo clippy --locked -p hurtle-core -p hurtle-host -p hurtle-cli --all-targets --target "$t" -- -D warnings
 done
 echo "cross checks passed"

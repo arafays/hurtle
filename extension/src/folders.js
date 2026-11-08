@@ -1,8 +1,8 @@
-// Download folders, shared by the popup and the download dialog. Surge keeps
+// Download folders, shared by the popup and the download dialog. Hurtle keeps
 // one main folder plus optional folders per file type (settings.json:
-// download_dir, type_dirs); this mirrors surge-core's util::category so the
+// download_dir, type_dirs); this mirrors hurtle-core's util::category so the
 // dialog can say where a file will go before it is sent.
-globalThis.SurgeFolders ??= (() => {
+globalThis.HurtleFolders ??= (() => {
   const CATEGORIES = [
     ["video", "Videos"],
     ["audio", "Music"],

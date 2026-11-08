@@ -16,7 +16,7 @@ Power users on Windows, macOS and Linux who want IDM-style download acceleration
 
 ## Product Purpose
 
-Surge downloads files faster by splitting each one into byte-range segments over parallel HTTP/1.1 connections, with IDM-style dynamic segmentation. A browser extension catches downloads and videos and hands them to the desktop app. Success: a visitor installs the app and the extension and their next big download or video goes through Surge.
+Hurtle downloads files faster by splitting each one into byte-range segments over parallel HTTP/1.1 connections, with IDM-style dynamic segmentation. A browser extension catches downloads and videos and hands them to the desktop app. Success: a visitor installs the app and the extension and their next big download or video goes through Hurtle.
 
 ## Positioning
 

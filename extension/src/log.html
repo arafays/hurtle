@@ -2,18 +2,18 @@
 <html>
   <head>
     <meta charset="utf-8" />
-    <title>Surge debug log</title>
+    <title>Hurtle debug log</title>
     <link rel="stylesheet" href="popup.css" />
     <link rel="stylesheet" href="log.css" />
   </head>
   <body class="log">
     <header>
       <img src="icons/icon-32.png" alt="" width="22" height="22" />
-      <strong>Surge debug log</strong>
+      <strong>Hurtle debug log</strong>
       <button id="refresh">Refresh</button>
       <button id="copy">Copy all</button>
       <button id="save">Save as file</button>
-      <button id="clear" title="Clears the extension's log; Surge's log file is kept">Clear</button>
+      <button id="clear" title="Clears the extension's log; Hurtle's log file is kept">Clear</button>
     </header>
     <p class="hint">
       Paste this into a bug report, or point Claude at the file. Cookie values and URL queries are never recorded.
@@ -26,7 +26,7 @@
     <h2>Browser extension <span class="hint">(last 400 lines)</span></h2>
     <pre id="ext">…</pre>
 
-    <h2>Surge app, native host and yt-dlp <span id="hostPath" class="hint"></span></h2>
+    <h2>Hurtle app, native host and yt-dlp <span id="hostPath" class="hint"></span></h2>
     <pre id="host">…</pre>
     <script src="log.js"></script>
   </body>

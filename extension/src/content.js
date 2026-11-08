@@ -1,14 +1,14 @@
-// Surge page overlay: a "Download video" button over playing media, like
+// Hurtle page overlay: a "Download video" button over playing media, like
 // IDM's floating panel. Lives in a closed shadow root so page CSS can't touch it.
 (() => {
-  if (window.__surgeOverlay) return;
-  window.__surgeOverlay = true;
+  if (window.__hurtleOverlay) return;
+  window.__hurtleOverlay = true;
 
   const api = globalThis.browser ?? globalThis.chrome;
   const MIN_W = 200;
   const MIN_H = 110;
 
-  const host = document.createElement("surge-overlay");
+  const host = document.createElement("hurtle-overlay");
   host.style.cssText = "all: initial; position: fixed; z-index: 2147483647; top: 0; left: 0; display: none;";
   const root = host.attachShadow({ mode: "closed" });
   root.innerHTML = `
@@ -35,18 +35,18 @@
       .caret { font-size: 11px; opacity: .85; margin-left: -2px; }
     </style>
     <div class="wrap">
-      <button class="main" title="Download with Surge">
+      <button class="main" title="Download with Hurtle">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
           stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v12M6 11l6 6 6-6M5 20h14"/></svg>
         <span class="label">Download video</span>
         <span class="count" hidden></span>
         <span class="caret" aria-hidden="true" hidden>▾</span>
-        <span class="x" title="Hide on this page (bring it back from the Surge toolbar button)">✕</span>
+        <span class="x" title="Hide on this page (bring it back from the Hurtle toolbar button)">✕</span>
       </button>
       <div class="menu" hidden></div>
     </div>`;
   const shared = document.createElement("style");
-  shared.textContent = SurgeUI.CSS;
+  shared.textContent = HurtleUI.CSS;
   root.prepend(shared);
   const button = root.querySelector("button.main");
   const close = root.querySelector(".x");
@@ -138,7 +138,7 @@
     count.hidden = !count.textContent;
     // The caret says a menu opens: several sizes or videos to choose from.
     caret.hidden = !(n >= 2 || sniffed >= 2 || (sizes.pending && !sniffed));
-    button.title = caret.hidden ? "Download with Surge" : "Choose a size to download with Surge";
+    button.title = caret.hidden ? "Download with Hurtle" : "Choose a size to download with Hurtle";
     if (target) place();
   }
 
@@ -227,7 +227,7 @@
     menu.replaceChildren();
     const title = pageTitle() || location.hostname;
     const current = srcOf(target);
-    const SUI = SurgeUI;
+    const SUI = HurtleUI;
     const info = sizes.info;
     const page = SUI.row({
       title: info?.title || title,
