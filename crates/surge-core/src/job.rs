@@ -102,7 +102,7 @@ async fn drive(
             .starts_with("attachment")
     });
     let page = ctype.starts_with("text/html") && !attachment;
-    if (page || ctype.contains("mpegurl") || ctype.contains("dash+xml")) && media::ytdlp().is_some()
+    if (page || ctype.contains("mpegurl") || ctype.contains("dash+xml")) && media::ytdlp_available()
     {
         drop(probe);
         job.rec.lock().unwrap().kind = Kind::Media;

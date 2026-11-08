@@ -21,11 +21,9 @@ if [[ ${1:-} == --uninstall ]]; then
   exit 0
 fi
 
-for dep in yt-dlp ffmpeg; do
-  command -v "$dep" >/dev/null || echo "note: $dep not found; video sites and HLS/DASH need it (pacman -S yt-dlp ffmpeg)"
+for dep in yt-dlp ffmpeg deno; do
+  command -v "$dep" >/dev/null || echo "note: $dep not found; Surge fetches it on the first video download (or: pacman -S $dep)"
 done
-command -v deno >/dev/null || command -v node >/dev/null ||
-  echo "note: no JS runtime (deno) found; yt-dlp needs one for YouTube (pacman -S deno)"
 
 echo "==> building (release)"
 cargo build --release --manifest-path "$root/Cargo.toml" -p surge-app -p surge-host -p surge-cli

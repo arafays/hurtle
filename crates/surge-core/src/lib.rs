@@ -13,6 +13,7 @@ pub mod media;
 pub mod nmh;
 pub mod rate;
 mod sched;
+pub mod tools;
 pub mod util;
 
 use std::collections::BTreeMap;

@@ -62,13 +62,14 @@ YouTube and most video sites don't serve one file. The player fetches many small
 - **Progress:** the bar has one block per stream (video, then audio), and the detail line says which stream is downloading. For HLS/DASH it also shows the fragment count.
 - Output is MP4 (H.264/AAC preferred) unless another type was chosen. Without ffmpeg, Surge falls back to formats that already contain both video and audio.
 
-Requirements: `yt-dlp` and `ffmpeg`, plus `deno` (yt-dlp needs a JS runtime for YouTube).
+Video downloads use `yt-dlp` and `ffmpeg`, plus `deno` for YouTube (yt-dlp needs a JS runtime there). There's nothing to install by hand:
 
-- Arch: `pacman -S yt-dlp ffmpeg deno`
-- macOS: `brew install yt-dlp ffmpeg deno`
-- Windows: `winget install yt-dlp.yt-dlp Gyan.FFmpeg DenoLand.Deno`
+- An installed copy is used first. Surge looks next to its own executable, on `PATH`, and in the usual install dirs: `/opt/homebrew/bin`, `/usr/local/bin`, `/usr/bin`, `~/.local/bin`, WinGet's `Links` and Scoop's `shims`. Set `SURGE_YTDLP` to override.
+- Anything missing is fetched the first time it's needed, from the official releases (yt-dlp, [yt-dlp/FFmpeg-Builds](https://github.com/yt-dlp/FFmpeg-Builds), deno; ffmpeg on macOS from [martin-riedl.de](https://ffmpeg.martin-riedl.de)). Each file is checked against its published SHA-256 sum, and goes to `$SURGE_DATA/tools`. The download row shows "Getting ffmpeg (first time only)…" meanwhile. The downloads are about 40 MB for yt-dlp, 100 MB for ffmpeg and 45 MB for deno; unpacked they take about 500 MB (ffmpeg and ffprobe are static builds).
+- A fetched yt-dlp updates itself about once a day (`yt-dlp -U`), since sites keep changing. An installed one is left to your package manager.
+- Browsers start Surge without your shell's `PATH`, so yt-dlp gets all these dirs added for finding ffmpeg and deno.
 
-Surge looks for yt-dlp next to its own executable, on `PATH`, and in the usual install dirs: `/opt/homebrew/bin`, `/usr/local/bin`, `~/.local/bin`, WinGet's `Links` and Scoop's `shims`. Set `SURGE_YTDLP` to override. Browsers start Surge without your shell's `PATH`, so yt-dlp gets these dirs added for finding ffmpeg and deno too.
+To install them yourself instead: `pacman -S yt-dlp ffmpeg deno`, `brew install yt-dlp ffmpeg deno`, or `winget install yt-dlp.yt-dlp Gyan.FFmpeg DenoLand.Deno`.
 
 ## Development
 

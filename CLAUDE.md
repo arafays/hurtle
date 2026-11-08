@@ -87,7 +87,13 @@ surge-cli ── uses Engine directly (data in $SURGE_DATA/cli), or --send over 
   - Progress keeps one `Stream` per yt-dlp format_id. They become `rec.segments`, one block per stream, and `rec.note` (e.g. "Video (stream 1) · fragment 3/40, 8 at a time"). The total only grows while downloading.
   - yt-dlp can't share the token buckets. It gets `--limit-rate` = the smaller of the per-file and global limits, and the job restarts (`Job::restart`) when either changes.
   - For extractor sites, header forwarding is limited to Cookie and Referer: overriding the User-Agent breaks yt-dlp's extraction.
-  - yt-dlp is found at `SURGE_YTDLP`, else in `tool_dirs()`: next to our executable, on `PATH`, Homebrew, `/usr/bin`, `~/.local/bin`, WinGet `Links` and Scoop `shims`. The browser launches the host without the user's shell PATH, so mise shims are invisible to it.
+  - yt-dlp is found at `SURGE_YTDLP`, else in `tools::search_dirs()`: next to our executable, on `PATH`, Homebrew, `/usr/bin`, `~/.local/bin`, WinGet `Links` and Scoop `shims`, and last `$SURGE_DATA/tools`. The browser launches the host without the user's shell PATH, so mise shims are invisible to it.
+- **Tool fetching (`tools.rs`):**
+  - A missing yt-dlp, ffmpeg (+ffprobe) or deno is fetched from its official release into `tools::dir()` (the global `data_dir()/tools`, shared by app, CLI and host) and checked against the published SHA-256 sums. The per-OS/arch asset table is `sources_for`.
+  - `probe()` fetches yt-dlp (and deno for YouTube) synchronously. `drive()` also fetches ffmpeg, through `spawn_blocking`, with progress in `rec.note`. Only a missing yt-dlp is an error.
+  - `job.rs` treats pages as media when yt-dlp is installed *or fetchable* (`media::ytdlp_available`).
+  - A fetched yt-dlp runs `-U` at most daily (`update_ytdlp_in_background`); installed copies are never touched.
+  - `SURGE_TOOLS_ONLY=1` ignores installed tools, to test fetching: `SURGE_TOOLS_ONLY=1 cargo run -p surge-core --example tools` (into `.dev-data/tools` under mise; delete them there to refetch).
 - **Speed limits:** `rate::RateLimiter` token buckets. There is one per job, shared by its connections, plus one global. Both change at runtime.
 - **Download folders:** `Settings.download_dir` is the main folder, and `type_dirs` maps a `util::CATEGORIES` id (video, audio, image, document, archive, program) to its own folder.
   - `Settings::dir_for(util::category(name))` picks the folder. Media uses `media::category(format, container)`, so audio-only goes to the audio folder.

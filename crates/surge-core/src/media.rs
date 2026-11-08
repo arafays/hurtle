@@ -21,6 +21,7 @@ use serde_json::Value;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio_util::sync::CancellationToken;
 
+use crate::tools::{self, Tool};
 use crate::{Inner, Job, Segment, Status};
 
 /// What a page offers, for the quality picker.
@@ -75,72 +76,50 @@ pub const AUDIO: &str = "ba[ext=m4a]/ba";
 /// resolution, then widely playable codecs (H.264/AAC in MP4).
 const SORT: &str = "lang,res,vcodec:h264,acodec:aac";
 
-/// Directories to look for helper tools in, besides `PATH`. The browser
-/// launches the host (and so Surge) without the user's shell PATH additions
-/// (mise shims, Homebrew on macOS), so also look in the usual install dirs
-/// and next to our own executable (where Windows users can drop yt-dlp.exe).
-fn tool_dirs() -> Vec<PathBuf> {
-    let mut dirs: Vec<PathBuf> = std::env::var_os("PATH")
-        .map(|p| std::env::split_paths(&p).collect())
-        .unwrap_or_default();
-    if let Some(exe_dir) = std::env::current_exe()
-        .ok()
-        .and_then(|e| e.parent().map(PathBuf::from))
-    {
-        dirs.insert(0, exe_dir);
-    }
-    let home = dirs::home_dir();
-    if cfg!(windows) {
-        if let Some(local) = dirs::data_local_dir() {
-            dirs.push(local.join("Microsoft").join("WinGet").join("Links"));
-        }
-        if let Some(h) = &home {
-            dirs.push(h.join("scoop").join("shims"));
-        }
-    } else {
-        dirs.extend(
-            [
-                "/opt/homebrew/bin",
-                "/usr/local/bin",
-                "/usr/bin",
-                "/opt/local/bin",
-            ]
-            .map(PathBuf::from),
-        );
-        if let Some(h) = &home {
-            dirs.push(h.join(".local/bin"));
-        }
-    }
-    dirs
-}
-
-fn find_tool(name: &str) -> Option<PathBuf> {
-    let file = format!("{name}{}", std::env::consts::EXE_SUFFIX);
-    tool_dirs()
-        .into_iter()
-        .map(|d| d.join(&file))
-        .find(|p| p.is_file())
-}
-
-/// Locate yt-dlp (`SURGE_YTDLP` overrides).
+/// Locate an installed or already-fetched yt-dlp (`SURGE_YTDLP` overrides).
 pub fn ytdlp() -> Option<PathBuf> {
     if let Some(p) = std::env::var_os("SURGE_YTDLP") {
         return Some(p.into());
     }
-    find_tool("yt-dlp")
+    tools::find(Tool::YtDlp)
+}
+
+/// Whether video pages can be handed to yt-dlp: it's there or can be fetched.
+pub fn ytdlp_available() -> bool {
+    std::env::var_os("SURGE_YTDLP").is_some() || tools::available(Tool::YtDlp)
+}
+
+/// yt-dlp, fetched first if needed (blocking).
+fn ensure_ytdlp(progress: tools::Progress) -> Result<PathBuf, String> {
+    if let Some(p) = ytdlp() {
+        return Ok(p);
+    }
+    tools::ensure(Tool::YtDlp, progress).map_err(|e| missing(&e))
+}
+
+/// YouTube makes yt-dlp solve JavaScript challenges, which needs deno;
+/// without it only some formats are listed.
+fn needs_js(url: &str) -> bool {
+    let host = reqwest::Url::parse(url)
+        .ok()
+        .and_then(|u| u.host_str().map(str::to_ascii_lowercase))
+        .unwrap_or_default();
+    ["youtube.com", "youtu.be", "youtube-nocookie.com"]
+        .iter()
+        .any(|d| host == *d || host.ends_with(&format!(".{d}")))
 }
 
 /// `PATH` for yt-dlp: its own dir and the usual install dirs first, so it
 /// finds ffmpeg and a JS runtime (deno) even when the browser started us.
 fn child_path(bin: &Path) -> std::ffi::OsString {
     let mut dirs: Vec<PathBuf> = bin.parent().map(PathBuf::from).into_iter().collect();
-    dirs.extend(tool_dirs());
+    dirs.extend(tools::search_dirs());
     dirs.dedup();
     std::env::join_paths(dirs).unwrap_or_default()
 }
 
 /// Settings shared by every yt-dlp we start.
-fn prepare(cmd: &mut std::process::Command, bin: &Path) {
+pub(crate) fn prepare(cmd: &mut std::process::Command, bin: &Path) {
     cmd.env("PATH", child_path(bin));
     #[cfg(windows)]
     {
@@ -157,20 +136,24 @@ fn prepare(cmd: &mut std::process::Command, bin: &Path) {
 }
 
 #[cfg(windows)]
-const MISSING: &str = "yt-dlp is not installed (needed for video sites and HLS/DASH streams). \
-     Install it with `winget install yt-dlp.yt-dlp Gyan.FFmpeg DenoLand.Deno`, \
-     or put yt-dlp.exe next to surge.exe";
+const INSTALL: &str = "winget install yt-dlp.yt-dlp Gyan.FFmpeg DenoLand.Deno";
 #[cfg(target_os = "macos")]
-const MISSING: &str = "yt-dlp is not installed (needed for video sites and HLS/DASH streams). \
-     Install it with `brew install yt-dlp ffmpeg deno`";
+const INSTALL: &str = "brew install yt-dlp ffmpeg deno";
 #[cfg(not(any(windows, target_os = "macos")))]
-const MISSING: &str = "yt-dlp is not installed (needed for video sites and HLS/DASH streams). \
-     Install yt-dlp, ffmpeg and deno from your package manager";
+const INSTALL: &str = "your package manager (yt-dlp, ffmpeg, deno)";
+
+/// yt-dlp is neither installed nor could be fetched.
+fn missing(why: &str) -> String {
+    format!(
+        "couldn't get yt-dlp, which video sites and HLS/DASH streams need ({why}). \
+         Install it with {INSTALL}"
+    )
+}
 
 /// ffmpeg merges separate video and audio. Without it, only formats that
 /// already contain both can be downloaded.
 fn has_ffmpeg() -> bool {
-    find_tool("ffmpeg").is_some()
+    tools::find(Tool::Ffmpeg).is_some()
 }
 
 /// Rewrite a selector for a machine without ffmpeg: drop the video+audio
@@ -248,7 +231,10 @@ fn error_from(lines: &[String]) -> Option<String> {
 
 /// List the formats a page offers (blocking; runs `yt-dlp -J`).
 pub fn probe(url: &str, headers: &[(String, String)]) -> Result<MediaInfo, String> {
-    let bin = ytdlp().ok_or(MISSING)?;
+    let bin = ensure_ytdlp(&|_, _, _| {})?;
+    if needs_js(url) {
+        let _ = tools::ensure(Tool::Deno, &|_, _, _| {});
+    }
     let mut cmd = std::process::Command::new(&bin);
     prepare(&mut cmd, &bin);
     cmd.args(base_args())
@@ -614,12 +600,69 @@ enum Line {
     Err(String),
 }
 
+/// yt-dlp, plus ffmpeg and (for YouTube) deno, fetching whatever isn't
+/// there yet; the row says what it's getting. Only a missing yt-dlp is an
+/// error: without ffmpeg, formats that need merging are skipped, and without
+/// deno YouTube offers fewer formats.
+async fn fetch_tools(
+    inner: &Arc<Inner>,
+    job: &Arc<Job>,
+    token: &CancellationToken,
+    url: &str,
+) -> Result<PathBuf, String> {
+    tools::update_ytdlp_in_background();
+    let have_ytdlp = ytdlp();
+    let mut want = vec![Tool::Ffmpeg];
+    if needs_js(url) {
+        want.push(Tool::Deno);
+    }
+    want.retain(|t| tools::find(*t).is_none());
+    if let (Some(bin), true) = (&have_ytdlp, want.is_empty()) {
+        return Ok(bin.clone());
+    }
+    let (inner2, job2, token2) = (inner.clone(), job.clone(), token.clone());
+    let work = tokio::task::spawn_blocking(move || {
+        // A paused row keeps its note: stop writing once it's cancelled (the
+        // fetch itself carries on, so it's there for the next try).
+        let note = |text: String| {
+            if !token2.is_cancelled() {
+                job2.rec.lock().unwrap().note = Some(text);
+                inner2.mark_dirty();
+            }
+        };
+        let progress = |tool: Tool, got: u64, total: Option<u64>| {
+            const MB: f64 = 1024.0 * 1024.0;
+            let size = match total {
+                Some(t) => format!("{:.0} / {:.0} MB", got as f64 / MB, t as f64 / MB),
+                None => format!("{:.0} MB", got as f64 / MB),
+            };
+            note(format!(
+                "Getting {} (first time only) · {size}",
+                tool.name()
+            ));
+        };
+        let bin = match have_ytdlp {
+            Some(b) => b,
+            None => ensure_ytdlp(&progress)?,
+        };
+        for tool in want {
+            // Not fatal: see above.
+            let _ = tools::ensure(tool, &progress);
+        }
+        note("Reading video info".into());
+        Ok(bin)
+    });
+    tokio::select! {
+        _ = token.cancelled() => Err("cancelled".into()),
+        r = work => r.map_err(|e| e.to_string())?,
+    }
+}
+
 pub(crate) async fn drive(
     inner: &Arc<Inner>,
     job: &Arc<Job>,
     token: &CancellationToken,
 ) -> Result<(), String> {
-    let bin = ytdlp().ok_or(MISSING)?;
     let settings = inner.settings.lock().unwrap().clone();
     let (id, url, headers, filename, dir, conns, format, lang, container, limit) = {
         let mut rec = job.rec.lock().unwrap();
@@ -647,6 +690,7 @@ pub(crate) async fn drive(
         )
     };
     inner.mark_dirty();
+    let bin = fetch_tools(inner, job, token, &url).await?;
     let tmp = temp_dir(inner, id);
     std::fs::create_dir_all(&tmp).map_err(|e| format!("{}: {e}", tmp.display()))?;
     std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;

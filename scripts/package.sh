@@ -37,13 +37,10 @@ Surge $version — multi-connection download manager
      turn on Developer mode, "Load unpacked", pick the unzipped folder.
    - Firefox: install the .xpi (signed builds), or about:debugging →
      "Load Temporary Add-on" → manifest.json from surge-firefox-$version.zip.
-3. Video sites and HLS/DASH streams need yt-dlp, ffmpeg and deno:
+3. Video sites and HLS/DASH streams use yt-dlp, ffmpeg and deno. Installed
+   copies are used; otherwise Surge fetches them the first time you save a
+   video (official releases, SHA-256 checked) and keeps yt-dlp updated.
 TXT
-  case $os in
-    windows) echo "     winget install yt-dlp.yt-dlp Gyan.FFmpeg DenoLand.Deno   (or put yt-dlp.exe next to surge.exe)" ;;
-    macos) echo "     brew install yt-dlp ffmpeg deno" ;;
-    linux) echo "     install yt-dlp, ffmpeg and deno with your package manager" ;;
-  esac
   if [[ $os == macos ]]; then
     cat <<'TXT'
 

@@ -6,3 +6,4 @@
 /.impeccable/hook.cache.json
 /.impeccable/questions
 /.impeccable/config.local.json
+/.env.local

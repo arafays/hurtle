@@ -20,7 +20,7 @@ What the add-on does:
 - Forwards the page's cookies and Referer to Surge, so downloads behind a login still work.
 
 The add-on needs the Surge app installed, which it talks to through native messaging: https://arafays.github.io/surge/
-Video sites also need yt-dlp, ffmpeg and deno.
+For video sites the app uses yt-dlp, ffmpeg and deno, and fetches them itself the first time if they are not installed.
 
 Nothing is sent anywhere except to the Surge app on your own computer.
 
