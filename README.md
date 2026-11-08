@@ -2,6 +2,10 @@
 
 An IDM-style download accelerator for Linux, Windows and macOS. It ships as a GPUI desktop app (built with [gpui-kit](https://gpui-kit.com)) plus a browser extension for Chrome-family browsers and Firefox.
 
+**Website and downloads:** https://arafays.github.io/surge/
+
+![Surge with five downloads: segmented progress bars over 6 and 8 connections, a finished HLS video and a failed download](docs/assets/app-hero.webp)
+
 ## Why it's faster
 
 Many servers cap the speed of each connection. Surge downloads a file as byte-range **segments**, each over its own HTTP/1.1 connection, and uses **dynamic segmentation**, the same method IDM uses. When a connection finishes, it takes the largest unfinished segment, splits it in half and starts at the midpoint. Every connection stays busy until the end, so there is no slow straggler at the finish.

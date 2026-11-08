@@ -3,3 +3,6 @@
 /extension/dist
 /extension/node_modules
 /dist
+/.impeccable/hook.cache.json
+/.impeccable/questions
+/.impeccable/config.local.json

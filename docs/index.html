@@ -1,0 +1,644 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Surge: download accelerator</title>
+<meta name="description" content="Surge splits every download across parallel connections, IDM-style, and saves videos from the browser with yt-dlp. Free and open source for Windows, macOS and Linux.">
+<meta property="og:title" content="Surge: download accelerator">
+<meta property="og:description" content="Parallel, resumable downloads and one-click browser video saving. Windows, macOS and Linux.">
+<meta property="og:image" content="https://arafays.github.io/surge/assets/og.png">
+<meta property="og:type" content="website">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="theme-color" content="#1a1b26">
+<link rel="icon" href="assets/icon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Mona+Sans:wdth,wght@75..125,400..900&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #1a1b26;
+  --bg-deep: #16161e;
+  --panel: #1f2335;
+  --panel-2: #24283b;
+  --line: #2e303f;
+  --track: #2a2d3e;
+  --fg: #c0caf5;
+  --fg-strong: #e4e8fb;
+  --muted: #9aa5ce;
+  --dim: #8a92bd;
+  --accent: #7aa2f7;
+  --accent-ink: #11131c;
+  --green: #9ece6a;
+  --orange: #ff9e64;
+  --red: #f7768e;
+  --cyan: #7dcfff;
+  --radius: 10px;
+  --gutter: clamp(16px, 4vw, 40px);
+  --max: 1160px;
+  --sans: "Mona Sans", ui-sans-serif, system-ui, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, monospace;
+  color-scheme: dark;
+}
+*, *::before, *::after { box-sizing: border-box; }
+html { scroll-behavior: smooth; scrollbar-color: var(--line) var(--bg); }
+body {
+  margin: 0; background: var(--bg); color: var(--fg);
+  font: 400 17px/1.6 var(--sans); font-stretch: 100%;
+  -webkit-font-smoothing: antialiased;
+}
+::selection { background: var(--accent); color: var(--accent-ink); }
+img { display: block; max-width: 100%; height: auto; }
+a { color: var(--accent); text-underline-offset: 3px; text-decoration-thickness: 1px; }
+a:hover { color: var(--fg-strong); }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 6px; }
+code { font-family: var(--mono); font-size: .88em; }
+.num { font-variant-numeric: tabular-nums; }
+code { background: var(--panel); padding: .1em .4em; border-radius: 5px; color: var(--fg-strong); }
+.wrap { max-width: var(--max); margin: 0 auto; padding: 0 var(--gutter); }
+
+/* header */
+.top { position: sticky; top: 0; z-index: 10; background: color-mix(in srgb, var(--bg) 88%, transparent); backdrop-filter: blur(10px); border-bottom: 1px solid transparent; transition: border-color .3s; }
+.top.scrolled { border-bottom-color: var(--line); }
+.top .wrap { display: flex; align-items: center; gap: 24px; height: 60px; }
+.brand { display: flex; align-items: center; gap: 10px; font-weight: 750; font-stretch: 112%; font-size: 19px; color: var(--fg-strong); text-decoration: none; }
+.brand img { width: 28px; height: 28px; }
+.top nav { display: flex; gap: 22px; margin-left: auto; font-size: 15px; }
+.top nav a { color: var(--muted); text-decoration: none; }
+.top nav a:hover { color: var(--fg-strong); }
+@media (max-width: 640px) { .top nav a:not(.gh) { display: none; } }
+
+/* buttons */
+.btn { display: inline-flex; align-items: center; gap: 9px; height: 44px; padding: 0 20px; border-radius: 8px; font: 600 16px var(--sans); text-decoration: none; border: 1px solid transparent; cursor: pointer; transition: background .15s, color .15s, border-color .15s, transform .15s; }
+.btn svg { width: 18px; height: 18px; flex: none; }
+.btn-primary { background: var(--accent); color: var(--accent-ink); }
+.btn-primary:hover { background: #a3c0ff; color: var(--accent-ink); }
+.btn-ghost { color: var(--fg-strong); border-color: var(--line); background: var(--panel); }
+.btn-ghost:hover { border-color: var(--dim); color: var(--fg-strong); }
+.btn:active { transform: translateY(1px); }
+
+/* hero */
+.hero { padding: clamp(48px, 8vw, 96px) 0 clamp(56px, 8vw, 88px); }
+.hero-grid { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); gap: clamp(32px, 4vw, 64px); align-items: center; }
+@media (max-width: 1080px) { .hero-grid { grid-template-columns: 1fr; } }
+.hero h1 { margin: 0; max-width: 14ch; font-size: clamp(40px, 5.2vw, 70px); line-height: .98; font-weight: 800; font-stretch: 118%; letter-spacing: -0.03em; color: var(--fg-strong); text-wrap: balance; }
+.hero .lede { margin: 24px 0 0; max-width: 56ch; font-size: clamp(17px, 1.6vw, 20px); color: var(--muted); }
+.hero .cta { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 32px; }
+.hero .os-note { margin-top: 14px; font-size: 14px; color: var(--dim); }
+
+/* race: drawn like the app's rows */
+.race { margin-top: 0; background: var(--bg-deep); border: 1px solid var(--line); border-radius: 14px; box-shadow: 0 30px 60px -30px rgba(0,0,0,.7), 0 2px 6px rgba(0,0,0,.3); overflow: hidden; }
+.race-bar { display: flex; align-items: center; gap: 12px; padding: 12px 18px; border-bottom: 1px solid var(--line); background: var(--panel); font-size: 14px; color: var(--muted); }
+.race-bar .title { color: var(--fg-strong); font-weight: 600; }
+.race-bar .spacer { flex: 1; }
+.race-bar button { font: 500 14px var(--sans); color: var(--fg-strong); background: transparent; border: 1px solid var(--line); border-radius: 7px; height: 32px; padding: 0 12px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
+.race-bar button:hover { border-color: var(--dim); }
+.race-bar button svg { width: 14px; height: 14px; }
+.lane { padding: 18px 18px 20px; border-bottom: 1px solid var(--line); }
+.lane:last-of-type { border-bottom: 0; }
+.lane-head { display: grid; grid-template-columns: 1fr auto; gap: 2px 16px; align-items: baseline; }
+.lane-name { color: var(--fg-strong); font-weight: 600; font-size: 16px; }
+.lane-sub { grid-column: 1; color: var(--dim); font-size: 14px; }
+.lane-time { grid-row: 1 / span 2; grid-column: 2; text-align: right; font-size: clamp(24px, 2.6vw, 34px); font-weight: 750; font-stretch: 112%; color: var(--accent); font-variant-numeric: tabular-nums; line-height: 1.1; }
+.lane-time small { display: block; font-size: 12px; font-weight: 400; color: var(--dim); font-family: var(--sans); }
+.lane.done .lane-time { color: var(--green); }
+.track { position: relative; height: 8px; margin-top: 14px; background: var(--track); border-radius: 4px; overflow: hidden; }
+.lane.multi .track { height: 14px; }
+.seg { position: absolute; top: 0; bottom: 0; background: var(--accent); }
+.seg.head::after { content: ""; position: absolute; right: 0; top: 0; bottom: 0; width: 2px; background: var(--fg-strong); }
+.tick { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: var(--orange); opacity: .9; }
+.tick.new { animation: tick 1s ease-out; }
+@keyframes tick { from { box-shadow: 0 0 0 0 var(--orange); background: #fff; } to { box-shadow: 0 0 0 0 transparent; } }
+.lane.done .seg { background: var(--green); }
+.lane.done .seg.head::after { display: none; }
+.workers { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-top: 12px; }
+.worker { font-family: var(--mono); font-size: 11.5px; color: var(--dim); padding: 4px 6px; border-radius: 5px; background: var(--panel); border: 1px solid var(--line); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: color .2s, border-color .2s; }
+.worker.on { color: var(--fg); border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
+.worker.split { border-color: var(--orange); color: var(--orange); }
+.race-foot { display: flex; flex-wrap: wrap; gap: 6px 24px; padding: 12px 18px; background: var(--panel); border-top: 1px solid var(--line); font-size: 13px; color: var(--dim); }
+.race-foot .legend { display: inline-flex; align-items: center; gap: 8px; }
+.race-foot .sw { width: 2px; height: 12px; background: var(--orange); }
+
+/* sections */
+section { padding: clamp(64px, 9vw, 120px) 0; }
+section + section { border-top: 1px solid var(--line); }
+h2 { margin: 0 0 18px; font-size: clamp(30px, 4.2vw, 52px); line-height: 1.05; font-weight: 780; font-stretch: 112%; letter-spacing: -0.025em; color: var(--fg-strong); text-wrap: balance; max-width: 20ch; }
+h3 { margin: 0 0 8px; font-size: 19px; font-weight: 680; color: var(--fg-strong); letter-spacing: -0.01em; }
+.intro { max-width: 62ch; color: var(--muted); font-size: 18px; margin: 0; }
+.split { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: clamp(32px, 5vw, 72px); align-items: start; }
+.split.flip { grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); }
+@media (max-width: 900px) { .split, .split.flip { grid-template-columns: 1fr; } }
+.points { list-style: none; margin: 32px 0 0; padding: 0; display: grid; gap: 22px; }
+.points li { padding-left: 22px; position: relative; max-width: 54ch; }
+.points li::before { content: ""; position: absolute; left: 0; top: .55em; width: 10px; height: 10px; border-radius: 2px; background: var(--accent); box-shadow: 4px 0 0 -2px var(--bg), 6px 0 0 -2px var(--accent); }
+.points p { margin: 0; color: var(--muted); }
+.shot { margin: 0; border-radius: var(--radius); overflow: hidden; border: 1px solid var(--line); background: var(--bg-deep); box-shadow: 0 24px 48px -28px rgba(0,0,0,.75); }
+.shot-cap { margin-top: 12px; font-size: 14px; color: var(--dim); }
+.sticky { position: sticky; top: 84px; }
+
+/* browser flow */
+.flow { display: grid; grid-template-columns: 1.15fr 1fr .75fr; gap: 20px; margin-top: 48px; align-items: start; }
+.flow figure { margin: 0; }
+.flow .step { font-family: var(--mono); font-size: 13px; color: var(--accent); margin-bottom: 10px; }
+.flow figcaption { margin-top: 14px; }
+.flow figcaption p { margin: 0; color: var(--muted); font-size: 15px; }
+@media (max-width: 960px) { .flow { grid-template-columns: 1fr 1fr; } .flow figure:first-child { grid-column: 1 / -1; } }
+@media (max-width: 600px) { .flow { grid-template-columns: 1fr; } }
+
+/* video */
+.facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 0; margin-top: 44px; border-top: 1px solid var(--line); }
+.facts div { padding: 22px 24px 22px 0; border-bottom: 1px solid var(--line); }
+.facts p { margin: 0; color: var(--muted); font-size: 15px; }
+
+/* themes */
+.themes-ui { display: flex; flex-wrap: wrap; gap: 8px; margin: 32px 0 20px; }
+.chip { display: inline-flex; align-items: center; gap: 9px; height: 38px; padding: 0 14px; border-radius: 999px; border: 1px solid var(--line); background: var(--panel); color: var(--fg); font: 500 15px var(--sans); cursor: pointer; }
+.chip:hover { border-color: var(--dim); }
+.chip[aria-pressed="true"] { border-color: var(--accent); color: var(--fg-strong); background: color-mix(in srgb, var(--accent) 14%, var(--panel)); }
+.chip i { width: 14px; height: 14px; border-radius: 50%; box-shadow: inset 0 0 0 1px rgba(255,255,255,.25); }
+.theme-stage { position: relative; max-width: 860px; }
+.theme-stage img { transition: opacity .35s ease-out; }
+
+/* download */
+.dl-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 14px; margin-top: 40px; }
+.dl { display: flex; flex-direction: column; gap: 6px; padding: 20px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); text-decoration: none; color: var(--fg); transition: border-color .15s, background .15s; }
+.dl:hover { border-color: var(--accent); background: var(--panel-2); color: var(--fg); }
+.dl.mine { order: -1; border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+.dl .os { font-weight: 700; color: var(--fg-strong); font-size: 18px; display: flex; align-items: center; gap: 10px; }
+.dl .os .tag { font: 600 11px var(--sans); text-transform: uppercase; letter-spacing: .06em; color: var(--accent-ink); background: var(--accent); padding: 2px 7px; border-radius: 4px; }
+.dl .file { font-family: var(--mono); font-size: 12.5px; color: var(--dim); overflow-wrap: anywhere; }
+.dl .how { font-size: 14.5px; color: var(--muted); margin-top: 4px; }
+.dl .get { margin-top: auto; padding-top: 12px; display: inline-flex; align-items: center; gap: 8px; color: var(--accent); font-weight: 600; font-size: 15px; }
+.dl .get svg { width: 16px; height: 16px; }
+.dl-meta { margin-top: 18px; font-size: 14px; color: var(--dim); }
+.req { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 32px; margin-top: 56px; }
+.req h3 { font-size: 17px; }
+.req p, .req li { color: var(--muted); font-size: 15px; }
+.req ul { margin: 8px 0 0; padding-left: 18px; }
+.req li + li { margin-top: 6px; }
+pre { margin: 10px 0 0; padding: 12px 14px; background: var(--bg-deep); border: 1px solid var(--line); border-radius: 8px; overflow-x: auto; font: 13px/1.6 var(--mono); color: var(--fg-strong); }
+
+footer { border-top: 1px solid var(--line); padding: 40px 0 56px; color: var(--dim); font-size: 14px; }
+footer .wrap { display: flex; flex-wrap: wrap; gap: 12px 28px; align-items: center; }
+footer a { color: var(--muted); }
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  .tick.new { animation: none; }
+}
+</style>
+</head>
+<body>
+<header class="top" id="top">
+  <div class="wrap">
+    <a class="brand" href="#"><img src="assets/icon.svg" alt="" width="28" height="28">Surge</a>
+    <nav aria-label="Main">
+      <a href="#how">How it works</a>
+      <a href="#browser">Browser</a>
+      <a href="#video">Video sites</a>
+      <a href="#download">Download</a>
+      <a class="gh" href="https://github.com/arafays/surge">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+<div class="hero">
+  <div class="wrap hero-grid">
+   <div>
+    <h1>Every connection, busy until the last byte.</h1>
+    <p class="lede">Surge splits a download into segments over parallel connections. When a connection finishes, it takes over half of the slowest remaining segment, so all of them finish together. It also saves video from the browser through yt-dlp. Free and open source for Windows, macOS and Linux.</p>
+    <div class="cta">
+      <a class="btn btn-primary" href="#download" id="cta-main">
+        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 3v10M5.5 8.5 10 13l4.5-4.5M4 17h12"/></svg>
+        <span>Get Surge</span>
+      </a>
+      <a class="btn btn-ghost" href="https://github.com/arafays/surge">Source on GitHub</a>
+    </div>
+    <p class="os-note" id="os-note">Windows · macOS · Linux · Chrome, Brave, Edge, Firefox, Zen</p>
+   </div>
+
+    <div class="race" id="race" aria-label="Simulation: the same file over 1 and 8 connections">
+      <div class="race-bar">
+        <span class="title">24 MB file · server allows 512 KB/s per connection</span>
+        <span class="spacer"></span>
+        <button type="button" id="replay" aria-label="Replay the race">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 8a5.5 5.5 0 1 0 1.6-3.9M2.5 2.5v2.6h2.6"/></svg>
+          Replay
+        </button>
+      </div>
+      <div class="lane single" id="lane1">
+        <div class="lane-head">
+          <span class="lane-name">1 connection</span>
+          <span class="lane-time" aria-live="off"><span class="t num">0.0 s</span><small>measured 48.2 s</small></span>
+          <span class="lane-sub"><span class="got num">0.0</span> MB of 24 MB · <span class="spd num">0 KB/s</span></span>
+        </div>
+        <div class="track"></div>
+      </div>
+      <div class="lane multi" id="lane8">
+        <div class="lane-head">
+          <span class="lane-name">Surge, 8 connections</span>
+          <span class="lane-time" aria-live="off"><span class="t num">0.0 s</span><small>measured 6.6 s</small></span>
+          <span class="lane-sub"><span class="got num">0.0</span> MB of 24 MB · <span class="act">0/8</span> connections · <span class="spd num">0 KB/s</span></span>
+        </div>
+        <div class="track"></div>
+        <div class="workers" aria-hidden="true"></div>
+      </div>
+      <div class="race-foot">
+        <span class="legend"><span class="sw"></span>a cut: an idle connection took over half of the slowest segment</span>
+        <span>Simulation of the README benchmark, played at 4× speed</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<section id="how">
+  <div class="wrap split">
+    <div>
+      <h2>No slow straggler at the end</h2>
+      <p class="intro">Many servers cap each connection. Surge opens several, each fetching its own byte range of the file, and keeps them all busy until the download is done.</p>
+      <ul class="points">
+        <li><h3>Dynamic segmentation</h3><p>An idle connection first picks up an orphaned segment, then takes over a stalled one (no data for 10 s), and otherwise splits the segment with the longest time left. The cut is weighted so both halves finish together.</p></li>
+        <li><h3>Ramps up, backs off</h3><p>A download starts with up to 4 connections and adds more while throughput keeps rising, up to your limit. A 429, 503 or connection error halves the count.</p></li>
+        <li><h3>HTTP/1.1 on purpose</h3><p>HTTP/2 would carry every segment over one TCP connection, and the per-connection cap would apply again.</p></li>
+        <li><h3>Resumes where it stopped</h3><p>Data is written in place into a preallocated file, with no merge step. State is saved every 2 seconds, so after a pause, quit or crash the download continues from the same position. Size and ETag are checked first.</p></li>
+        <li><h3>Speed limits that change live</h3><p>One limit per download, shared by its connections, and one global limit across all downloads. Change either while a download runs.</p></li>
+      </ul>
+    </div>
+    <div class="sticky">
+      <figure class="shot"><img src="assets/app-expanded.webp" width="860" height="640" alt="Surge window with download rows expanded. Big Buck Bunny.mkv shows 6 connections receiving, each with its byte range, progress and speed of about 157 KB/s." loading="lazy"></figure>
+      <p class="shot-cap">An expanded row lists every connection: its byte range, progress and speed.</p>
+    </div>
+  </div>
+</section>
+
+<section id="browser">
+  <div class="wrap">
+    <h2>It catches downloads where you start them</h2>
+    <p class="intro">The extension for Chrome-family browsers and Firefox pauses the browser's own download and opens one dialog. Rename the file, pick connections and a speed limit, choose the folder, and start. Cookies and the Referer are forwarded, so downloads behind a login still work.</p>
+    <div class="flow">
+      <figure>
+        <div class="step">Hover a video</div>
+        <div class="shot"><img src="assets/ext-overlay-menu.webp" width="660" height="320" alt="A Download video button above a playing video, with a menu listing this page via yt-dlp, the playing clip at 360p, and an HLS stream with 720p and 360p chips." loading="lazy"></div>
+        <figcaption><p>A button appears above any video. Its menu lists the page, the files it found and the stream qualities, with thumbnails, length and size.</p></figcaption>
+      </figure>
+      <figure>
+        <div class="step">Choose what to save</div>
+        <div class="shot"><img src="assets/ext-dialog-video.webp" width="540" height="560" alt="The Download file info dialog: file name, Save to folder, quality, audio language, Save as type MP4, connections 8, speed limit." loading="lazy"></div>
+        <figcaption><p>Quality, audio language, file type, folder, connections and speed limit. Then Start, Download later, or hand it back to the browser.</p></figcaption>
+      </figure>
+      <figure>
+        <div class="step">Or open the popup</div>
+        <div class="shot"><img src="assets/ext-popup.webp" width="400" height="640" alt="The extension popup listing media on the page and the download folder settings." loading="lazy"></div>
+        <figcaption><p>Everything found on the page, plus your download folders. It works even while the app is closed.</p></figcaption>
+      </figure>
+    </div>
+  </div>
+</section>
+
+<section id="video">
+  <div class="wrap split flip">
+    <div>
+      <figure class="shot"><img src="assets/app-hero.webp" width="860" height="640" alt="Surge window with five downloads: a failed nightly build, a completed Product Demo.mp4 from an HLS stream, Big Buck Bunny.mkv at 900 KB/s over 6 connections, a completed PDF, and a Fedora ISO over 8 connections." loading="lazy"></figure>
+      <p class="shot-cap">Plain files and streams in one list. Product Demo.mp4 came from an HLS stream through yt-dlp.</p>
+    </div>
+    <div>
+      <h2>Video sites and streams, without the command line</h2>
+      <p class="intro">YouTube and most video sites serve many small pieces, often with audio and video apart. HLS and DASH work the same way. Surge hands these to <a href="https://github.com/yt-dlp/yt-dlp">yt-dlp</a>, and ffmpeg merges the result into one file.</p>
+      <div class="facts">
+        <div><h3>The original audio</h3><p>YouTube adds auto-dubbed tracks to many videos. Surge picks the original language and lists the others.</p></div>
+        <div><h3>Your format</h3><p>MP4 that plays everywhere, MKV, the original container, or audio only as MP3, M4A or Opus.</p></div>
+        <div><h3>Real titles</h3><p>Files are named after the video, not <code>videoplayback?id=…</code>.</p></div>
+        <div><h3>Paste a link</h3><p>Paste a page link in the app. If the server answers with a page or a stream, Surge switches to yt-dlp.</p></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="themes">
+  <div class="wrap">
+    <h2>Looks like the rest of your desktop</h2>
+    <p class="intro">On Linux, Surge reads your system theme: Omarchy, Noctalia, pywal, wallust, Stylix, GTK and KDE colors, and re-themes live when they change. Everywhere else, pick light, dark or a preset.</p>
+    <div class="themes-ui" role="group" aria-label="Theme preview">
+      <button class="chip" type="button" aria-pressed="true" data-src="assets/app-hero.webp" data-alt="Surge in Tokyo Night"><i style="background:#7aa2f7"></i>Tokyo Night</button>
+      <button class="chip" type="button" aria-pressed="false" data-src="assets/app-gruvbox.webp" data-alt="Surge in Gruvbox Dark"><i style="background:#fe8019"></i>Gruvbox Dark</button>
+      <button class="chip" type="button" aria-pressed="false" data-src="assets/app-light.webp" data-alt="Surge in Rosé Pine Dawn"><i style="background:#907aa9"></i>Rosé Pine Dawn</button>
+      <button class="chip" type="button" aria-pressed="false" data-src="assets/app-solarized.webp" data-alt="Surge in Solarized Light"><i style="background:#268bd2"></i>Solarized Light</button>
+      <button class="chip" type="button" aria-pressed="false" data-src="assets/app-folders.webp" data-alt="Surge download folders panel in Nord: main folder plus Videos, Music, Pictures, Documents, Archives and Programs"><i style="background:#88c0d0"></i>Nord · folders</button>
+    </div>
+    <div class="theme-stage">
+      <figure class="shot"><img id="theme-img" src="assets/app-hero.webp" width="860" height="640" alt="Surge in Tokyo Night" loading="lazy"></figure>
+      <p class="shot-cap">Each file type can go to its own folder: videos, music, pictures, documents, archives, programs.</p>
+    </div>
+  </div>
+</section>
+
+<section id="download">
+  <div class="wrap">
+    <h2>Get Surge</h2>
+    <p class="intro">Download the app for your system, then add the extension to your browser. The first time the app runs, it registers itself with every Chrome-family browser and Firefox it finds.</p>
+    <div class="dl-grid" id="dl-grid">
+      <a class="dl" data-os="windows" data-match="windows-x86_64\.zip$" href="https://github.com/arafays/surge/releases/latest">
+        <span class="os">Windows</span><span class="file">windows-x86_64.zip</span>
+        <span class="how">Unzip anywhere and run <code>surge.exe</code>.</span>
+        <span class="get"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 3v10M5.5 8.5 10 13l4.5-4.5M4 17h12"/></svg>Download</span>
+      </a>
+      <a class="dl" data-os="mac-arm" data-match="macos-aarch64\.zip$" href="https://github.com/arafays/surge/releases/latest">
+        <span class="os">macOS, Apple silicon</span><span class="file">macos-aarch64.zip</span>
+        <span class="how">Move <code>Surge.app</code> to Applications and open it.</span>
+        <span class="get"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 3v10M5.5 8.5 10 13l4.5-4.5M4 17h12"/></svg>Download</span>
+      </a>
+      <a class="dl" data-os="mac-intel" data-match="macos-x86_64\.zip$" href="https://github.com/arafays/surge/releases/latest">
+        <span class="os">macOS, Intel</span><span class="file">macos-x86_64.zip</span>
+        <span class="how">Same as Apple silicon.</span>
+        <span class="get"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 3v10M5.5 8.5 10 13l4.5-4.5M4 17h12"/></svg>Download</span>
+      </a>
+      <a class="dl" data-os="linux" data-match="linux-x86_64\.tar\.gz$" href="https://github.com/arafays/surge/releases/latest">
+        <span class="os">Linux, x86-64</span><span class="file">linux-x86_64.tar.gz</span>
+        <span class="how">Extract and run <code>./surge</code>. Includes a tray icon.</span>
+        <span class="get"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 3v10M5.5 8.5 10 13l4.5-4.5M4 17h12"/></svg>Download</span>
+      </a>
+      <a class="dl" data-os="linux-arm" data-match="linux-aarch64\.tar\.gz$" href="https://github.com/arafays/surge/releases/latest">
+        <span class="os">Linux, ARM64</span><span class="file">linux-aarch64.tar.gz</span>
+        <span class="how">Extract and run <code>./surge</code>.</span>
+        <span class="get"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 3v10M5.5 8.5 10 13l4.5-4.5M4 17h12"/></svg>Download</span>
+      </a>
+      <a class="dl" data-os="ext-chrome" data-match="^surge-chrome-.*\.zip$" href="https://github.com/arafays/surge/releases/latest">
+        <span class="os">Chrome, Brave, Edge extension</span><span class="file">surge-chrome.zip</span>
+        <span class="how">Unzip, open <code>chrome://extensions</code>, turn on Developer mode, then Load unpacked.</span>
+        <span class="get"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 3v10M5.5 8.5 10 13l4.5-4.5M4 17h12"/></svg>Download</span>
+      </a>
+      <a class="dl" data-os="ext-firefox" data-match="^surge-firefox-.*\.xpi$" href="https://github.com/arafays/surge/releases/latest">
+        <span class="os">Firefox, Zen, LibreWolf add-on</span><span class="file">surge-firefox.xpi</span>
+        <span class="how">Zen and LibreWolf: set <code>xpinstall.signatures.required</code> to false, then Install Add-on From File.</span>
+        <span class="get"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 3v10M5.5 8.5 10 13l4.5-4.5M4 17h12"/></svg>Download</span>
+      </a>
+    </div>
+    <p class="dl-meta" id="dl-meta">All files and SHA-256 checksums are on the <a href="https://github.com/arafays/surge/releases/latest">latest release</a>.</p>
+
+    <div class="req">
+      <div>
+        <h3>For video sites and streams</h3>
+        <p>Install yt-dlp, ffmpeg and deno (yt-dlp needs a JavaScript runtime for YouTube).</p>
+        <pre>winget install yt-dlp.yt-dlp Gyan.FFmpeg DenoLand.Deno
+brew install yt-dlp ffmpeg deno
+pacman -S yt-dlp ffmpeg deno</pre>
+      </div>
+      <div>
+        <h3>Good to know</h3>
+        <ul>
+          <li>macOS builds are not notarized. If macOS says the app is damaged, run <code>xattr -dr com.apple.quarantine /Applications/Surge.app</code>.</li>
+          <li>The tray icon is Linux-only for now. On Windows and macOS, closing the window quits Surge, and the next browser download starts it again.</li>
+          <li>Flatpak and Snap browsers can't start programs outside their sandbox. Use your distro's browser package.</li>
+          <li>Firefox only keeps signed add-ons after a restart. Until a signed build ships, load it from <code>about:debugging</code>.</li>
+        </ul>
+      </div>
+      <div>
+        <h3>Build from source</h3>
+        <p>Tooling is pinned with <a href="https://mise.jdx.dev">mise</a>.</p>
+        <pre>git clone https://github.com/arafays/surge
+cd surge && mise install
+mise run install</pre>
+      </div>
+    </div>
+  </div>
+</section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <a class="brand" href="#"><img src="assets/icon.svg" alt="" width="22" height="22">Surge</a>
+    <span>Rust engine, GPUI desktop app, MV3 extension.</span>
+    <a href="https://github.com/arafays/surge">Source</a>
+    <a href="https://github.com/arafays/surge/releases">Releases</a>
+    <a href="https://github.com/arafays/surge/issues">Issues</a>
+  </div>
+</footer>
+
+<script>
+(() => {
+  // Header rule once scrolled.
+  const top = document.getElementById("top");
+  addEventListener("scroll", () => top.classList.toggle("scrolled", scrollY > 8), { passive: true });
+
+  // ---- The race: a simulation of the README benchmark (24 MB, 512 KB/s per connection).
+  const SIZE = 24 * 1024 * 1024, CAP = 512 * 1024, MAX = 8, SPEEDUP = 4;
+  const T1 = 48.2, T8 = 6.6;
+  const MB = (b) => (b / 1048576).toFixed(1);
+
+  // Deterministic jitter so every replay looks the same.
+  let seed = 7;
+  const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+
+  // Dynamic segmentation as in sched.rs: an idle worker splits the segment with
+  // the longest time left, cut so both halves finish together.
+  function simulate() {
+    seed = 7;
+    const segs = [{ start: 0, end: SIZE, pos: 0, w: 0 }];
+    const workers = [{ id: 0, speed: CAP * (0.93 + rnd() * 0.07), seg: 0, from: 0 }];
+    const events = []; // [t, kind, data]
+    let t = 0, dt = 0.02, nextRamp = 0.5;
+    events.push([0, "start", 0]);
+    const split = (w) => {
+      let best = -1, eta = 0;
+      segs.forEach((s, i) => {
+        if (s.w < 0 || s.end - s.pos < 128 * 1024) return;
+        const e = (s.end - s.pos) / workers[s.w].speed;
+        if (e > eta) { eta = e; best = i; }
+      });
+      if (best < 0) return false;
+      const s = segs[best], other = workers[s.w];
+      const left = s.end - s.pos;
+      const cut = Math.round(s.pos + left * other.speed / (other.speed + w.speed));
+      segs.push({ start: cut, end: s.end, pos: cut, w: w.id });
+      s.end = cut;
+      w.seg = segs.length - 1;
+      events.push([t, "cut", { at: cut, worker: w.id, from: s.w }]);
+      return true;
+    };
+    while (t < 60) {
+      // Ramp: 4 at once, then one more every half second while it helps.
+      if (workers.length < 4 || (t >= nextRamp && workers.length < MAX)) {
+        const w = { id: workers.length, speed: CAP * (0.88 + rnd() * 0.12), seg: -1 };
+        workers.push(w);
+        if (!split(w)) workers.pop(); else events.push([t, "start", w.id]);
+        if (workers.length >= 4 && t >= nextRamp) nextRamp = t + 0.5;
+        continue;
+      }
+      for (const w of workers) {
+        if (w.seg < 0) continue;
+        const s = segs[w.seg];
+        s.pos = Math.min(s.end, s.pos + w.speed * dt);
+        if (s.pos >= s.end) {
+          s.w = -1; w.seg = -1;
+          if (!split(w)) events.push([t, "idle", w.id]);
+        }
+      }
+      t += dt;
+      if (segs.every((s) => s.pos >= s.end)) break;
+    }
+    return { total: t };
+  }
+  // Calibrate so the 8-connection lane lands on the measured time.
+  const scale = simulate().total / T8;
+
+  const lane1 = document.getElementById("lane1"), lane8 = document.getElementById("lane8");
+  const track1 = lane1.querySelector(".track"), track8 = lane8.querySelector(".track");
+  const workerBox = lane8.querySelector(".workers");
+  const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  let raf = 0;
+
+  function run() {
+    cancelAnimationFrame(raf);
+    seed = 7;
+    lane1.classList.remove("done"); lane8.classList.remove("done");
+    track1.innerHTML = '<div class="seg head" style="left:0;width:0"></div>';
+    track8.innerHTML = "";
+    workerBox.innerHTML = "";
+    const bar1 = track1.firstChild;
+    const segs = [{ start: 0, end: SIZE, pos: 0, w: 0, el: null }];
+    const workers = [];
+    const cells = [];
+    for (let i = 0; i < MAX; i++) {
+      const c = document.createElement("div");
+      c.className = "worker"; c.textContent = `#${i + 1} idle`;
+      workerBox.append(c); cells.push(c);
+    }
+    const addSegEl = (s) => {
+      s.el = document.createElement("div");
+      s.el.className = "seg head";
+      s.el.style.left = (s.start / SIZE * 100) + "%";
+      track8.append(s.el);
+    };
+    const addTick = (at) => {
+      const k = document.createElement("div");
+      k.className = "tick new"; k.style.left = (at / SIZE * 100) + "%";
+      track8.append(k);
+    };
+    const mkWorker = () => {
+      const j = workers.length ? 0.88 + rnd() * 0.12 : 0.93 + rnd() * 0.07;
+      const w = { id: workers.length, speed: CAP * j * scale, seg: -1 };
+      workers.push(w);
+      return w;
+    };
+    const w0 = mkWorker(); w0.seg = 0; addSegEl(segs[0]);
+    const split = (w) => {
+      let best = -1, eta = 0;
+      segs.forEach((s, i) => {
+        if (s.w < 0 || s.end - s.pos < 128 * 1024) return;
+        const e = (s.end - s.pos) / workers[s.w].speed;
+        if (e > eta) { eta = e; best = i; }
+      });
+      if (best < 0) return false;
+      const s = segs[best], other = workers[s.w];
+      const cut = Math.round(s.pos + (s.end - s.pos) * other.speed / (other.speed + w.speed));
+      const n = { start: cut, end: s.end, pos: cut, w: w.id, el: null };
+      s.end = cut; segs.push(n); addSegEl(n); addTick(cut);
+      w.seg = segs.length - 1;
+      cells[w.id].classList.add("split");
+      setTimeout(() => cells[w.id].classList.remove("split"), 700);
+      return true;
+    };
+
+    let t = 0, last = performance.now(), nextRamp = 0.5, got1 = 0, done8 = false;
+    const t1 = lane1.querySelector(".t"), g1 = lane1.querySelector(".got"), s1 = lane1.querySelector(".spd");
+    const t8 = lane8.querySelector(".t"), g8 = lane8.querySelector(".got"), s8 = lane8.querySelector(".spd"), a8 = lane8.querySelector(".act");
+    const speed1 = SIZE / T1;
+
+    function frame(now) {
+      let dt = Math.min(0.05, (now - last) / 1000) * SPEEDUP; last = now;
+      if (reduce) dt = 60;
+      // Simulated time runs in small steps so cuts land as they would.
+      let left = dt;
+      while (left > 0) {
+        const step = Math.min(0.02, left); left -= step; t += step;
+        got1 = Math.min(SIZE, got1 + speed1 * step);
+        if (!done8) {
+          if (workers.length < 4 || (t >= nextRamp && workers.length < MAX)) {
+            const w = mkWorker();
+            if (!split(w)) workers.pop();
+            if (workers.length >= 4 && t >= nextRamp) nextRamp = t + 0.5;
+          }
+          for (const w of workers) {
+            if (w.seg < 0) continue;
+            const s = segs[w.seg];
+            s.pos = Math.min(s.end, s.pos + w.speed * step);
+            if (s.pos >= s.end) { s.w = -1; w.seg = -1; split(w); }
+          }
+          if (segs.every((s) => s.pos >= s.end)) { done8 = true; lane8.classList.add("done"); t8.textContent = T8.toFixed(1) + " s"; }
+        }
+      }
+      // Paint.
+      bar1.style.width = (got1 / SIZE * 100) + "%";
+      g1.textContent = MB(got1); t1.textContent = Math.min(t, T1).toFixed(1) + " s";
+      s1.textContent = got1 < SIZE ? "512 KB/s" : "done";
+      let got8 = 0, active = 0, rate = 0;
+      for (const s of segs) {
+        got8 += s.pos - s.start;
+        s.el.style.width = ((s.pos - s.start) / SIZE * 100) + "%";
+        s.el.classList.toggle("head", s.pos < s.end);
+      }
+      workers.forEach((w, i) => {
+        const on = w.seg >= 0;
+        if (on) { active++; rate += w.speed / scale; }
+        cells[i].classList.toggle("on", on);
+        cells[i].textContent = on ? `#${i + 1} ${Math.round(w.speed / scale / 1024)} KB/s` : `#${i + 1} ${done8 ? "done" : "idle"}`;
+      });
+      g8.textContent = MB(got8);
+      a8.textContent = `${active}/${MAX}`;
+      s8.textContent = done8 ? "done" : (rate / 1048576).toFixed(1) + " MB/s";
+      if (!done8) t8.textContent = t.toFixed(1) + " s";
+      if (got1 >= SIZE) { lane1.classList.add("done"); t1.textContent = T1.toFixed(1) + " s"; return; }
+      raf = requestAnimationFrame(frame);
+    }
+    raf = requestAnimationFrame((n) => { last = n; frame(n); });
+  }
+
+  // Start when the race scrolls into view; replay on demand.
+  const race = document.getElementById("race");
+  let started = false;
+  new IntersectionObserver((es) => {
+    if (es.some((e) => e.isIntersecting) && !started) { started = true; run(); }
+  }, { threshold: 0.35 }).observe(race);
+  document.getElementById("replay").addEventListener("click", run);
+
+  // ---- Theme preview.
+  const img = document.getElementById("theme-img");
+  document.querySelectorAll(".chip").forEach((b) => b.addEventListener("click", () => {
+    document.querySelectorAll(".chip").forEach((c) => c.setAttribute("aria-pressed", String(c === b)));
+    img.style.opacity = 0;
+    const next = new Image(); next.src = b.dataset.src;
+    next.decode().catch(() => {}).then(() => { img.src = b.dataset.src; img.alt = b.dataset.alt; img.style.opacity = 1; });
+  }));
+
+  // ---- Downloads: point the cards at the latest release's files and mark this OS.
+  const ua = navigator.userAgent, plat = (navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || "";
+  const mine = /Win/i.test(plat) ? "windows" : /Mac/i.test(plat) || /Mac OS/.test(ua) ? "mac-arm" : /Linux/i.test(plat) ? (/aarch64|arm/i.test(plat) ? "linux-arm" : "linux") : null;
+  const label = { windows: "Windows", "mac-arm": "macOS", linux: "Linux", "linux-arm": "Linux" }[mine];
+  if (mine) {
+    const card = document.querySelector(`.dl[data-os="${mine}"]`);
+    card.classList.add("mine");
+    card.querySelector(".os").insertAdjacentHTML("beforeend", '<span class="tag">Your system</span>');
+    document.querySelector("#cta-main span").textContent = `Get Surge for ${label}`;
+  }
+  fetch("https://api.github.com/repos/arafays/surge/releases/latest")
+    .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
+    .then((rel) => {
+      const assets = rel.assets || [];
+      document.querySelectorAll(".dl").forEach((card) => {
+        const re = new RegExp(card.dataset.match);
+        const a = assets.find((x) => re.test(x.name) && !/unsigned/.test(x.name)) ||
+          (card.dataset.os === "ext-firefox" && assets.find((x) => /^surge-firefox-.*\.xpi$/.test(x.name)));
+        if (!a) return;
+        card.href = a.browser_download_url;
+        card.querySelector(".file").textContent = `${a.name} · ${MB(a.size)} MB`;
+      });
+      const when = new Date(rel.published_at).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+      document.getElementById("dl-meta").innerHTML =
+        `Version ${rel.tag_name.replace(/^v/, "")}, released ${when}. Checksums and release notes are on the <a href="${rel.html_url}">release page</a>.`;
+    })
+    .catch(() => {});
+})();
+</script>
+</body>
+</html>
