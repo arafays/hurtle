@@ -54,7 +54,7 @@ a:hover { color: var(--fg-strong); }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 6px; }
 code { font-family: var(--mono); font-size: .88em; }
 .num { font-variant-numeric: tabular-nums; }
-code { background: var(--panel); padding: .1em .4em; border-radius: 5px; color: var(--fg-strong); }
+code { background: var(--panel); padding: .15em .45em; border-radius: 5px; color: var(--fg-strong); }
 .wrap { max-width: var(--max); margin: 0 auto; padding: 0 var(--gutter); }
 
 /* header */
@@ -79,8 +79,14 @@ code { background: var(--panel); padding: .1em .4em; border-radius: 5px; color: 
 
 /* hero */
 .hero { padding: clamp(48px, 8vw, 96px) 0 clamp(56px, 8vw, 88px); }
-.hero-grid { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); gap: clamp(32px, 4vw, 64px); align-items: center; }
-@media (max-width: 1080px) { .hero-grid { grid-template-columns: 1fr; } }
+.hero-grid { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); grid-template-areas: "h race" "rest race"; column-gap: clamp(32px, 4vw, 64px); align-items: center; }
+.hero-grid > h1 { grid-area: h; align-self: end; }
+.hero-grid > .race { grid-area: race; }
+.hero-grid > .rest { grid-area: rest; align-self: start; }
+@media (max-width: 1080px) {
+  .hero-grid { grid-template-columns: 1fr; grid-template-areas: "h" "race" "rest"; row-gap: 28px; }
+  .hero-grid > .rest .lede { margin-top: 0; }
+}
 .hero h1 { margin: 0; max-width: 14ch; font-size: clamp(40px, 5.2vw, 70px); line-height: .98; font-weight: 800; font-stretch: 118%; letter-spacing: -0.03em; color: var(--fg-strong); text-wrap: balance; }
 .hero .lede { margin: 24px 0 0; max-width: 56ch; font-size: clamp(17px, 1.6vw, 20px); color: var(--muted); }
 .hero .cta { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 32px; }
@@ -112,7 +118,7 @@ code { background: var(--panel); padding: .1em .4em; border-radius: 5px; color: 
 .lane.done .seg { background: var(--green); }
 .lane.done .seg.head::after { display: none; }
 .workers { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-top: 12px; }
-.worker { font-family: var(--mono); font-size: 11.5px; color: var(--dim); padding: 4px 6px; border-radius: 5px; background: var(--panel); border: 1px solid var(--line); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: color .2s, border-color .2s; }
+.worker { font-family: var(--mono); font-size: 11.5px; color: var(--dim); padding: 6px 9px; border-radius: 5px; background: var(--panel); border: 1px solid var(--line); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: color .2s, border-color .2s; }
 .worker.on { color: var(--fg); border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
 .worker.split { border-color: var(--orange); color: var(--orange); }
 .race-foot { display: flex; flex-wrap: wrap; gap: 6px 24px; padding: 12px 18px; background: var(--panel); border-top: 1px solid var(--line); font-size: 13px; color: var(--dim); }
@@ -139,7 +145,6 @@ h3 { margin: 0 0 8px; font-size: 19px; font-weight: 680; color: var(--fg-strong)
 /* browser flow */
 .flow { display: grid; grid-template-columns: 1.15fr 1fr .75fr; gap: 20px; margin-top: 48px; align-items: start; }
 .flow figure { margin: 0; }
-.flow .step { font-family: var(--mono); font-size: 13px; color: var(--accent); margin-bottom: 10px; }
 .flow figcaption { margin-top: 14px; }
 .flow figcaption p { margin: 0; color: var(--muted); font-size: 15px; }
 @media (max-width: 960px) { .flow { grid-template-columns: 1fr 1fr; } .flow figure:first-child { grid-column: 1 / -1; } }
@@ -164,7 +169,8 @@ h3 { margin: 0 0 8px; font-size: 19px; font-weight: 680; color: var(--fg-strong)
 .dl { display: flex; flex-direction: column; gap: 6px; padding: 20px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); text-decoration: none; color: var(--fg); transition: border-color .15s, background .15s; }
 .dl:hover { border-color: var(--accent); background: var(--panel-2); color: var(--fg); }
 .dl.mine { order: -1; border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
-.dl .os { font-weight: 700; color: var(--fg-strong); font-size: 18px; display: flex; align-items: center; gap: 10px; }
+.dl .os { font-weight: 700; color: var(--fg-strong); font-size: 18px; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
+.dl .os b { font-weight: inherit; }
 .dl .os .tag { font: 600 11px var(--sans); text-transform: uppercase; letter-spacing: .06em; color: var(--accent-ink); background: var(--accent); padding: 2px 7px; border-radius: 4px; }
 .dl .file { font-family: var(--mono); font-size: 12.5px; color: var(--dim); overflow-wrap: anywhere; }
 .dl .how { font-size: 14.5px; color: var(--muted); margin-top: 4px; }
@@ -205,20 +211,8 @@ footer a { color: var(--muted); }
 <main>
 <div class="hero">
   <div class="wrap hero-grid">
-   <div>
     <h1>Every connection, busy until the last byte.</h1>
-    <p class="lede">Surge splits a download into segments over parallel connections. When a connection finishes, it takes over half of the slowest remaining segment, so all of them finish together. It also saves video from the browser through yt-dlp. Free and open source for Windows, macOS and Linux.</p>
-    <div class="cta">
-      <a class="btn btn-primary" href="#download" id="cta-main">
-        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 3v10M5.5 8.5 10 13l4.5-4.5M4 17h12"/></svg>
-        <span>Get Surge</span>
-      </a>
-      <a class="btn btn-ghost" href="https://github.com/arafays/surge">Source on GitHub</a>
-    </div>
-    <p class="os-note" id="os-note">Windows · macOS · Linux · Chrome, Brave, Edge, Firefox, Zen</p>
-   </div>
-
-    <div class="race" id="race" aria-label="Simulation: the same file over 1 and 8 connections">
+    <div class="race" id="race" role="figure" aria-label="Simulation of the measured benchmark: a 24 MB file takes 48.2 seconds over 1 connection and 6.6 seconds over Surge's 8 connections.">
       <div class="race-bar">
         <span class="title">24 MB file · server allows 512 KB/s per connection</span>
         <span class="spacer"></span>
@@ -249,6 +243,17 @@ footer a { color: var(--muted); }
         <span>Simulation of the README benchmark, played at 4× speed</span>
       </div>
     </div>
+    <div class="rest">
+    <p class="lede">Surge splits a download into segments over parallel connections. When a connection finishes, it takes over half of the slowest remaining segment, so all of them finish together. It also saves video from the browser through yt-dlp. Free and open source for Windows, macOS and Linux.</p>
+    <div class="cta">
+      <a class="btn btn-primary" href="#download" id="cta-main">
+        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 3v10M5.5 8.5 10 13l4.5-4.5M4 17h12"/></svg>
+        <span>Get Surge</span>
+      </a>
+      <a class="btn btn-ghost" href="https://github.com/arafays/surge">Source on GitHub</a>
+    </div>
+    <p class="os-note" id="os-note">Windows · macOS · Linux · Chrome, Brave, Edge, Firefox, Zen</p>
+    </div>
   </div>
 </div>
 
@@ -278,19 +283,16 @@ footer a { color: var(--muted); }
     <p class="intro">The extension for Chrome-family browsers and Firefox pauses the browser's own download and opens one dialog. Rename the file, pick connections and a speed limit, choose the folder, and start. Cookies and the Referer are forwarded, so downloads behind a login still work.</p>
     <div class="flow">
       <figure>
-        <div class="step">Hover a video</div>
         <div class="shot"><img src="assets/ext-overlay-menu.webp" width="660" height="320" alt="A Download video button above a playing video, with a menu listing this page via yt-dlp, the playing clip at 360p, and an HLS stream with 720p and 360p chips." loading="lazy"></div>
-        <figcaption><p>A button appears above any video. Its menu lists the page, the files it found and the stream qualities, with thumbnails, length and size.</p></figcaption>
+        <figcaption><h3>Hover a video</h3><p>A button appears above any video. Its menu lists the page, the files it found and the stream qualities, with thumbnails, length and size.</p></figcaption>
       </figure>
       <figure>
-        <div class="step">Choose what to save</div>
         <div class="shot"><img src="assets/ext-dialog-video.webp" width="540" height="560" alt="The Download file info dialog: file name, Save to folder, quality, audio language, Save as type MP4, connections 8, speed limit." loading="lazy"></div>
-        <figcaption><p>Quality, audio language, file type, folder, connections and speed limit. Then Start, Download later, or hand it back to the browser.</p></figcaption>
+        <figcaption><h3>Choose what to save</h3><p>Quality, audio language, file type, folder, connections and speed limit. Then Start, Download later, or hand it back to the browser.</p></figcaption>
       </figure>
       <figure>
-        <div class="step">Or open the popup</div>
         <div class="shot"><img src="assets/ext-popup.webp" width="400" height="640" alt="The extension popup listing media on the page and the download folder settings." loading="lazy"></div>
-        <figcaption><p>Everything found on the page, plus your download folders. It works even while the app is closed.</p></figcaption>
+        <figcaption><h3>Or open the popup</h3><p>Everything found on the page, plus your download folders. It works even while the app is closed.</p></figcaption>
       </figure>
     </div>
   </div>
@@ -320,15 +322,15 @@ footer a { color: var(--muted); }
     <h2>Looks like the rest of your desktop</h2>
     <p class="intro">On Linux, Surge reads your system theme: Omarchy, Noctalia, pywal, wallust, Stylix, GTK and KDE colors, and re-themes live when they change. Everywhere else, pick light, dark or a preset.</p>
     <div class="themes-ui" role="group" aria-label="Theme preview">
-      <button class="chip" type="button" aria-pressed="true" data-src="assets/app-hero.webp" data-alt="Surge in Tokyo Night"><i style="background:#7aa2f7"></i>Tokyo Night</button>
-      <button class="chip" type="button" aria-pressed="false" data-src="assets/app-gruvbox.webp" data-alt="Surge in Gruvbox Dark"><i style="background:#fe8019"></i>Gruvbox Dark</button>
+      <button class="chip" type="button" aria-pressed="false" data-src="assets/app-hero.webp" data-alt="Surge in Tokyo Night"><i style="background:#7aa2f7"></i>Tokyo Night</button>
+      <button class="chip" type="button" aria-pressed="true" data-src="assets/app-gruvbox.webp" data-alt="Surge in Gruvbox Dark"><i style="background:#fe8019"></i>Gruvbox Dark</button>
       <button class="chip" type="button" aria-pressed="false" data-src="assets/app-light.webp" data-alt="Surge in Rosé Pine Dawn"><i style="background:#907aa9"></i>Rosé Pine Dawn</button>
       <button class="chip" type="button" aria-pressed="false" data-src="assets/app-solarized.webp" data-alt="Surge in Solarized Light"><i style="background:#268bd2"></i>Solarized Light</button>
       <button class="chip" type="button" aria-pressed="false" data-src="assets/app-folders.webp" data-alt="Surge download folders panel in Nord: main folder plus Videos, Music, Pictures, Documents, Archives and Programs"><i style="background:#88c0d0"></i>Nord · folders</button>
     </div>
     <div class="theme-stage">
-      <figure class="shot"><img id="theme-img" src="assets/app-hero.webp" width="860" height="640" alt="Surge in Tokyo Night" loading="lazy"></figure>
-      <p class="shot-cap">Each file type can go to its own folder: videos, music, pictures, documents, archives, programs.</p>
+      <figure class="shot"><img id="theme-img" src="assets/app-gruvbox.webp" width="860" height="640" alt="Surge in Gruvbox Dark" loading="lazy"></figure>
+      <p class="shot-cap" id="theme-cap" hidden>Each file type can go to its own folder: videos, music, pictures, documents, archives, programs.</p>
     </div>
   </div>
 </section>
@@ -338,43 +340,43 @@ footer a { color: var(--muted); }
     <h2>Get Surge</h2>
     <p class="intro">Download the app for your system, then add the extension to your browser. The first time the app runs, it registers itself with every Chrome-family browser and Firefox it finds.</p>
     <div class="dl-grid" id="dl-grid">
-      <a class="dl" data-os="windows" data-match="windows-x86_64\.zip$" href="https://github.com/arafays/surge/releases/latest">
-        <span class="os">Windows</span><span class="file">windows-x86_64.zip</span>
+      <a class="dl" data-os="windows" data-match="windows-x86_64\.zip$" href="https://github.com/arafays/surge/releases">
+        <span class="os"><b>Windows</b></span><span class="file">surge-…-windows-x86_64.zip</span>
         <span class="how">Unzip anywhere and run <code>surge.exe</code>.</span>
         <span class="get"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 3v10M5.5 8.5 10 13l4.5-4.5M4 17h12"/></svg>Download</span>
       </a>
-      <a class="dl" data-os="mac-arm" data-match="macos-aarch64\.zip$" href="https://github.com/arafays/surge/releases/latest">
-        <span class="os">macOS, Apple silicon</span><span class="file">macos-aarch64.zip</span>
+      <a class="dl" data-os="mac-arm" data-match="macos-aarch64\.zip$" href="https://github.com/arafays/surge/releases">
+        <span class="os"><b>macOS, Apple silicon</b></span><span class="file">surge-…-macos-aarch64.zip</span>
         <span class="how">Move <code>Surge.app</code> to Applications and open it.</span>
         <span class="get"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 3v10M5.5 8.5 10 13l4.5-4.5M4 17h12"/></svg>Download</span>
       </a>
-      <a class="dl" data-os="mac-intel" data-match="macos-x86_64\.zip$" href="https://github.com/arafays/surge/releases/latest">
-        <span class="os">macOS, Intel</span><span class="file">macos-x86_64.zip</span>
+      <a class="dl" data-os="mac-intel" data-match="macos-x86_64\.zip$" href="https://github.com/arafays/surge/releases">
+        <span class="os"><b>macOS, Intel</b></span><span class="file">surge-…-macos-x86_64.zip</span>
         <span class="how">Same as Apple silicon.</span>
         <span class="get"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 3v10M5.5 8.5 10 13l4.5-4.5M4 17h12"/></svg>Download</span>
       </a>
-      <a class="dl" data-os="linux" data-match="linux-x86_64\.tar\.gz$" href="https://github.com/arafays/surge/releases/latest">
-        <span class="os">Linux, x86-64</span><span class="file">linux-x86_64.tar.gz</span>
+      <a class="dl" data-os="linux" data-match="linux-x86_64\.tar\.gz$" href="https://github.com/arafays/surge/releases">
+        <span class="os"><b>Linux, x86‑64</b></span><span class="file">surge-…-linux-x86_64.tar.gz</span>
         <span class="how">Extract and run <code>./surge</code>. Includes a tray icon.</span>
         <span class="get"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 3v10M5.5 8.5 10 13l4.5-4.5M4 17h12"/></svg>Download</span>
       </a>
-      <a class="dl" data-os="linux-arm" data-match="linux-aarch64\.tar\.gz$" href="https://github.com/arafays/surge/releases/latest">
-        <span class="os">Linux, ARM64</span><span class="file">linux-aarch64.tar.gz</span>
+      <a class="dl" data-os="linux-arm" data-match="linux-aarch64\.tar\.gz$" href="https://github.com/arafays/surge/releases">
+        <span class="os"><b>Linux, ARM64</b></span><span class="file">surge-…-linux-aarch64.tar.gz</span>
         <span class="how">Extract and run <code>./surge</code>.</span>
         <span class="get"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 3v10M5.5 8.5 10 13l4.5-4.5M4 17h12"/></svg>Download</span>
       </a>
-      <a class="dl" data-os="ext-chrome" data-match="^surge-chrome-.*\.zip$" href="https://github.com/arafays/surge/releases/latest">
-        <span class="os">Chrome, Brave, Edge extension</span><span class="file">surge-chrome.zip</span>
+      <a class="dl" data-os="ext-chrome" data-match="^surge-chrome-.*\.zip$" href="https://github.com/arafays/surge/releases">
+        <span class="os"><b>Chrome, Brave, Edge extension</b></span><span class="file">surge-chrome-….zip</span>
         <span class="how">Unzip, open <code>chrome://extensions</code>, turn on Developer mode, then Load unpacked.</span>
         <span class="get"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 3v10M5.5 8.5 10 13l4.5-4.5M4 17h12"/></svg>Download</span>
       </a>
-      <a class="dl" data-os="ext-firefox" data-match="^surge-firefox-.*\.xpi$" href="https://github.com/arafays/surge/releases/latest">
-        <span class="os">Firefox, Zen, LibreWolf add-on</span><span class="file">surge-firefox.xpi</span>
+      <a class="dl" data-os="ext-firefox" data-match="^surge-firefox-.*\.xpi$" href="https://github.com/arafays/surge/releases">
+        <span class="os"><b>Firefox, Zen, LibreWolf add-on</b></span><span class="file">surge-firefox-….xpi</span>
         <span class="how">Zen and LibreWolf: set <code>xpinstall.signatures.required</code> to false, then Install Add-on From File.</span>
         <span class="get"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 3v10M5.5 8.5 10 13l4.5-4.5M4 17h12"/></svg>Download</span>
       </a>
     </div>
-    <p class="dl-meta" id="dl-meta">All files and SHA-256 checksums are on the <a href="https://github.com/arafays/surge/releases/latest">latest release</a>.</p>
+    <p class="dl-meta" id="dl-meta">All files and SHA-256 checksums are on the <a href="https://github.com/arafays/surge/releases">releases page</a>.</p>
 
     <div class="req">
       <div>
@@ -599,7 +601,7 @@ mise run install</pre>
   let started = false;
   new IntersectionObserver((es) => {
     if (es.some((e) => e.isIntersecting) && !started) { started = true; run(); }
-  }, { threshold: 0.35 }).observe(race);
+  }, { threshold: 0.6 }).observe(document.getElementById("lane8"));
   document.getElementById("replay").addEventListener("click", run);
 
   // ---- Theme preview.
@@ -607,18 +609,23 @@ mise run install</pre>
   document.querySelectorAll(".chip").forEach((b) => b.addEventListener("click", () => {
     document.querySelectorAll(".chip").forEach((c) => c.setAttribute("aria-pressed", String(c === b)));
     img.style.opacity = 0;
+    document.getElementById("theme-cap").hidden = !b.dataset.src.includes("folders");
     const next = new Image(); next.src = b.dataset.src;
     next.decode().catch(() => {}).then(() => { img.src = b.dataset.src; img.alt = b.dataset.alt; img.style.opacity = 1; });
   }));
 
   // ---- Downloads: point the cards at the latest release's files and mark this OS.
   const ua = navigator.userAgent, plat = (navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || "";
-  const mine = /Win/i.test(plat) ? "windows" : /Mac/i.test(plat) || /Mac OS/.test(ua) ? "mac-arm" : /Linux/i.test(plat) ? (/aarch64|arm/i.test(plat) ? "linux-arm" : "linux") : null;
-  const label = { windows: "Windows", "mac-arm": "macOS", linux: "Linux", "linux-arm": "Linux" }[mine];
+  const mobile = /Android|iPhone|iPad/i.test(ua);
+  const mine = mobile ? null : /Win/i.test(plat) ? "windows" : /Mac/i.test(plat) || /Mac OS/.test(ua) ? "mac" : /Linux/i.test(plat) ? (/aarch64|arm/i.test(plat) ? "linux-arm" : "linux") : null;
+  const label = { windows: "Windows", mac: "macOS", linux: "Linux", "linux-arm": "Linux" }[mine];
   if (mine) {
-    const card = document.querySelector(`.dl[data-os="${mine}"]`);
-    card.classList.add("mine");
-    card.querySelector(".os").insertAdjacentHTML("beforeend", '<span class="tag">Your system</span>');
+    // Browsers don't reveal Apple silicon vs Intel reliably, so both Mac cards are marked.
+    const cards = mine === "mac" ? [...document.querySelectorAll('.dl[data-os^="mac-"]')] : [document.querySelector(`.dl[data-os="${mine}"]`)];
+    for (const card of cards) {
+      card.classList.add("mine");
+      card.querySelector(".os").insertAdjacentHTML("beforeend", '<span class="tag">Your system</span>');
+    }
     document.querySelector("#cta-main span").textContent = `Get Surge for ${label}`;
   }
   fetch("https://api.github.com/repos/arafays/surge/releases/latest")

@@ -1,0 +1,14 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "overused-font",
+        "value": "mona sans",
+        "createdAt": "2026-11-08T16:23:35.327Z",
+        "reason": "model choice, not user-confirmed: Mona Sans used at 112-118% width as the display voice to match the GitHub-hosted, app-derived world"
+      }
+    ]
+  }
+}
