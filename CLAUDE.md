@@ -94,6 +94,10 @@ hurtle-cli ── uses Engine directly (data in $HURTLE_DATA/cli), or --send ove
   - `job.rs` treats pages as media when yt-dlp is installed *or fetchable* (`media::ytdlp_available`).
   - A fetched yt-dlp runs `-U` at most daily (`update_ytdlp_in_background`); installed copies are never touched.
   - `HURTLE_TOOLS_ONLY=1` ignores installed tools, to test fetching: `HURTLE_TOOLS_ONLY=1 cargo run -p hurtle-core --example tools` (into `.dev-data/tools` under mise; delete them there to refetch).
+- **Expired links (relink):** `Download.page_url` is where a download was found (`AddRequest.pageUrl`, else the referrer). The app shows it with an "Open page" button.
+  - `Engine::add_or_relink` checks `same_download`. When a paused, failed or queued entry matches, it gets the new URL and fresh headers, its ETag is cleared, and it is queued again instead of being added twice. The IPC reply then says `resumed: true`.
+  - A file matches on the same link ignoring the query string, or on the same `size` (at least 1 MiB) plus the same name or page. Media matches on the same options plus the same manifest path, or the same page and name.
+  - `job.rs`'s `same_file` probe still decides whether the segments are kept. Check it with `cargo run -p hurtle-core --example relink -- http://127.0.0.1:8090 <size> <dir>`.
 - **Speed limits:** `rate::RateLimiter` token buckets. There is one per job, shared by its connections, plus one global. Both change at runtime.
 - **Download folders:** `Settings.download_dir` is the main folder, and `type_dirs` maps a `util::CATEGORIES` id (video, audio, image, document, archive, program) to its own folder.
   - `Settings::dir_for(util::category(name))` picks the folder. Media uses `media::category(format, container)`, so audio-only goes to the audio folder.
@@ -162,6 +166,7 @@ hurtle-cli ── uses Engine directly (data in $HURTLE_DATA/cli), or --send ove
   - Quality chips pass `quality` through to the dialog, which preselects the closest choice at or below it.
   - The popup gets the page's title and `<video>` details by sending `page-info` to the top frame.
 - **Sizes:** the first time the button shows on a page, `page-sizes` asks yt-dlp (via the host's `probe`) which sizes the page offers. The button then reads "Download video [N sizes] ▾", and the menu's page row gets one chip per size ("1080p · 45 MB"). `probeMedia` caches answers per URL for 10 minutes, so the dialog opens with the list already there. `MediaChoice` carries `width`/`height`, shown in the dialog as "720p · 1280×720 · ≈ 1.4 MB".
+- **Preferred resolution:** `storage.local.preferredQuality` (popup Settings → Video, default 1080, 0 = best). `HurtleUI.pickHeight` picks the highest size at or below it, else the lowest above; that chip is highlighted (`.chip.pick`) in the overlay menu and popup, and `dialog.js` preselects the same choice when no chip was clicked.
 - `build.sh` builds into `dist/.build` and swaps `dist/chrome`/`dist/firefox` in with `mv --exchange`. Brave/Chromium load `dist/chrome` unpacked and Zen may have `dist/firefox` as a temporary add-on, so the folders must never be missing, even mid-build.
 - Local builds get a 4th manifest version part (`build.sh`), so reinstalling a rebuilt `.xpi` is an update. Firefox/Zen kept serving the old files after a same-version reinstall.
 - **Overlay (`content.js`):** a closed shadow-root button that sits above the hovered video.

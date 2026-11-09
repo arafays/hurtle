@@ -32,6 +32,9 @@
       .count { padding: 0 6px; border-radius: 999px; background: #0284c7; color: #fff; font-size: 11px; font-weight: 600; line-height: 17px; }
       button.main:hover .count:not(.busy) { background: #fff; color: #0369a1; }
       .count.busy { background: rgba(255,255,255,.18); font-weight: 400; }
+      .off { display: block; width: 100%; margin-top: 2px; padding: 6px 8px; border: 0; border-top: 1px solid rgba(255,255,255,.12);
+        background: none; color: inherit; font: inherit; font-size: 11px; text-align: left; opacity: .65; cursor: pointer; }
+      .off:hover { opacity: 1; text-decoration: underline; }
       .caret { font-size: 11px; opacity: .85; margin-left: -2px; }
     </style>
     <div class="wrap">
@@ -60,11 +63,25 @@
   // popup ("Show it again on this page") or the page is reloaded.
   let dismissed = false;
   let enabled = true; // popup switch "Show button over videos"
-  api.storage.local.get("overlay").then((r) => (enabled = r.overlay !== false), () => {});
+  let siteOff = false; // this site is in the "don't show on" list (overlayOff)
+  let preferred = 1080; // popup setting "Preferred resolution" (0 = best)
+  const blockedNow = (list) => HurtleUI.hostBlocked(list, location.hostname);
+  api.storage.local.get(["overlay", "overlayOff", "preferredQuality"]).then((r) => {
+    enabled = r.overlay !== false;
+    if (r.preferredQuality != null) preferred = Number(r.preferredQuality) || 0;
+    siteOff = blockedNow(r.overlayOff);
+    if (siteOff) hide();
+  }, () => {});
   api.storage.onChanged.addListener((c, area) => {
-    if (area === "local" && c.overlay) {
+    if (area !== "local") return;
+    if (c.preferredQuality) preferred = Number(c.preferredQuality.newValue ?? 1080) || 0;
+    if (c.overlay) {
       enabled = c.overlay.newValue !== false;
       if (!enabled) hide();
+    }
+    if (c.overlayOff) {
+      siteOff = blockedNow(c.overlayOff.newValue);
+      if (siteOff) hide();
     }
   });
 
@@ -143,7 +160,7 @@
   }
 
   function show(el) {
-    if (dismissed || !enabled) return;
+    if (dismissed || !enabled || siteOff) return;
     clearTimeout(hideTimer);
     if (target !== el) menu.hidden = true;
     target = el;
@@ -238,7 +255,7 @@
           : "Choose quality and audio language · via yt-dlp",
       file: [location.hostname, info?.site].filter(Boolean).join(" · "),
       thumbOpts: { live: target, image: pageImage(target) || info?.thumbnail },
-      chips: info ? SUI.sizeChips(info.sizes) : null,
+      chips: info ? SUI.sizeChips(info.sizes, preferred) : null,
       onClick: () => downloadPage(),
       onChip: (q) => downloadPage(q),
     });
@@ -266,12 +283,28 @@
           : stream
             ? { image: pageImage(target) }
             : { previewUrl: m.url, onMeta: (meta) => r.setSub(SUI.details(m, meta)) },
-        chips: stream && m.qualities?.length > 1 ? m.qualities : null,
+        chips: stream && m.qualities?.length > 1 ? SUI.heightChips(m.qualities, preferred) : null,
         onClick: () => download(m),
         onChip: (q) => download(m, q),
       });
       menu.append(r.el);
     }
+    const off = document.createElement("button");
+    off.type = "button";
+    off.className = "off";
+    off.textContent = `Don't show on ${location.hostname}`;
+    off.title = "Hide this button on this site; bring it back from the Hurtle toolbar button";
+    off.addEventListener("click", async (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const cur = (await api.storage.local.get("overlayOff").catch(() => ({}))).overlayOff;
+      const list = Array.isArray(cur) ? cur : [];
+      if (!HurtleUI.hostBlocked(list, location.hostname)) list.push(location.hostname);
+      siteOff = true;
+      hide();
+      api.storage.local.set({ overlayOff: list }).catch(() => {});
+    });
+    menu.append(off);
     menu.hidden = false;
     place();
   }

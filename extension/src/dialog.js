@@ -209,13 +209,22 @@ async function loadQualities(p) {
   for (const [i, c] of m.choices.entries()) {
     q.add(new Option(choiceText(c), i));
   }
-  // A quality picked in the page's menu (e.g. "720p"): the closest one at or below it.
-  if (p.quality) {
-    let best = null;
+  // A quality picked in the page's menu (e.g. "720p"), else the preferred
+  // resolution from the popup's settings: the closest one at or below it,
+  // else the lowest above it (the same pick the menu's highlighted chip shows).
+  const pref = (await api.storage.local.get("preferredQuality").catch(() => ({}))).preferredQuality;
+  const want = p.quality || (pref == null ? 1080 : Number(pref) || 0);
+  if (want) {
+    let below = null;
+    let above = null;
     for (const [i, c] of m.choices.entries()) {
+      if (c.audioOnly) continue;
       const h = Number(/^(\d+)p/.exec(c.label)?.[1]);
-      if (h && h <= p.quality && (best == null || h > best[1])) best = [i, h];
+      if (!h) continue;
+      if (h <= want && (below == null || h > below[1])) below = [i, h];
+      if (h > want && (above == null || h < above[1])) above = [i, h];
     }
+    const best = below || above;
     if (best) q.value = String(best[0]);
   }
   q.disabled = false;

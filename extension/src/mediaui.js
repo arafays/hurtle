@@ -67,16 +67,69 @@ globalThis.HurtleUI ??= (() => {
   }
 
   /**
+   * Only the best few resolutions get a quick chip; the dialog offers the
+   * rest. Takes heights (720) or size objects ({ quality }); highest first,
+   * equal heights once.
+   */
+  function topQualities(list, n = 3, preferred = 0) {
+    const key = (q) => (typeof q === "object" ? q.quality || q.height || 0 : q);
+    const seen = new Set();
+    const all = (list || [])
+      .filter((q) => {
+        const k = key(q);
+        if (!k || seen.has(k)) return false;
+        seen.add(k);
+        return true;
+      })
+      .sort((a, b) => key(b) - key(a));
+    const top = all.slice(0, n);
+    // The preferred resolution always gets a chip, even below the top few.
+    const pick = pickHeight(all.map(key), preferred);
+    if (preferred && pick && !top.some((q) => key(q) === pick)) top.splice(n - 1, 1, all.find((q) => key(q) === pick));
+    return top;
+  }
+
+  /**
+   * The height the user's preferred resolution lands on: the highest one at
+   * or below it, else the lowest there is. 0 = best available.
+   */
+  function pickHeight(heights, preferred) {
+    const hs = (heights || []).filter((h) => h > 0);
+    if (!hs.length) return 0;
+    if (!preferred) return Math.max(...hs);
+    const below = hs.filter((h) => h <= preferred);
+    return below.length ? Math.max(...below) : Math.min(...hs);
+  }
+
+  /** Stream heights (720) as chips, the preferred one marked. */
+  function heightChips(list, preferred) {
+    const top = topQualities(list, 3, preferred);
+    const pick = pickHeight(top, preferred);
+    return top.map((h) => ({ label: `${h}p`, value: h, pick: h === pick }));
+  }
+
+  /** Is `host` the blocked hostname or a subdomain of it? */
+  function hostBlocked(list, host) {
+    host = (host || "").toLowerCase();
+    return !!host && (list || []).some((h) => {
+      h = String(h).toLowerCase();
+      return host === h || host.endsWith(`.${h}`);
+    });
+  }
+
+  /**
    * yt-dlp's sizes for a page ({ label, quality, width, height, size }) as
    * chips: "1080p · 45 MB", with the frame size in the tooltip.
    */
-  function sizeChips(sizes) {
-    return (sizes || []).map((z) => {
+  function sizeChips(sizes, preferred = 0) {
+    const pick = pickHeight((sizes || []).map((z) => z.quality), preferred);
+    return topQualities(sizes, 3, preferred).map((z) => {
       const dims = z.width && z.height ? `${z.width}×${z.height}` : "";
       const size = z.size ? `≈ ${fmtSize(z.size)}` : "";
       return {
         label: [z.label, z.size ? fmtSize(z.size) : ""].filter(Boolean).join(" · "),
         value: z.quality,
+        pick: z.quality === pick,
         title: `Download ${[z.label, dims, size].filter(Boolean).join(" · ")}`,
       };
     });
@@ -203,11 +256,11 @@ globalThis.HurtleUI ??= (() => {
       c.replaceChildren();
       // A chip is a height (720 → "720p") or { label, value, title }.
       for (const chip of list || []) {
-        const { label, value, title: tip } = typeof chip === "object" ? chip : { label: `${chip}p`, value: chip };
+        const { label, value, title: tip, pick } = typeof chip === "object" ? chip : { label: `${chip}p`, value: chip };
         const b = document.createElement("span");
-        b.className = "chip";
+        b.className = pick ? "chip pick" : "chip";
         b.textContent = label;
-        b.title = tip || `Download ${label}`;
+        b.title = (tip || `Download ${label}`) + (pick ? " (your preferred resolution; clicking the row does the same)" : "");
         b.addEventListener("click", (e) => {
           e.stopPropagation();
           e.preventDefault();
@@ -241,8 +294,8 @@ globalThis.HurtleUI ??= (() => {
     .chips:empty { display: none; }
     .chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 3px; }
     .chip { padding: 0 6px; border-radius: 999px; border: 1px solid currentColor; font-size: 10px; line-height: 16px; opacity: .8; }
-    .chip:hover { opacity: 1; background: #0284c7; border-color: #0284c7; color: #fff; }
+    .chip:hover, .chip.pick { opacity: 1; background: #0284c7; border-color: #0284c7; color: #fff; }
   `;
 
-  return { fmtSize, fmtTime, quality, fileName, typeLabel, details, sizeChips, sizesLine, thumb, row, CSS };
+  return { fmtSize, fmtTime, quality, fileName, typeLabel, details, sizeChips, heightChips, pickHeight, topQualities, hostBlocked, sizesLine, thumb, row, CSS };
 })();

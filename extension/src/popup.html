@@ -10,87 +10,143 @@
       <img src="icons/icon-32.png" alt="" width="20" height="20" />
       <strong>Hurtle</strong>
       <span id="host" class="pill">checking…</span>
+      <button type="button" id="open" class="open">Open Hurtle</button>
     </header>
 
+    <nav class="tabs" role="tablist" aria-label="Hurtle">
+      <button type="button" role="tab" id="tab-page" aria-controls="panel-page" aria-selected="true" data-tab="page">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M3 9h18"/><path d="M10 13.5l4 2.5-4 2.5z" fill="currentColor"/></svg>
+        <span>This page</span>
+      </button>
+      <button type="button" role="tab" id="tab-sites" aria-controls="panel-sites" aria-selected="false" tabindex="-1" data-tab="sites">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3c2.6 2.6 3.9 5.6 3.9 9s-1.3 6.4-3.9 9c-2.6-2.6-3.9-5.6-3.9-9S9.4 5.6 12 3z"/></svg>
+        <span>Sites</span>
+      </button>
+      <button type="button" role="tab" id="tab-history" aria-controls="panel-history" aria-selected="false" tabindex="-1" data-tab="history" hidden>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3.5 12a8.5 8.5 0 1 0 2.5-6"/><path d="M3 4v4h4"/><path d="M12 8v4l3 2"/></svg>
+        <span>History</span>
+      </button>
+      <button type="button" role="tab" id="tab-settings" aria-controls="panel-settings" aria-selected="false" tabindex="-1" data-tab="settings">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2.2"/><circle cx="8" cy="17" r="2.2"/></svg>
+        <span>Settings</span>
+      </button>
+    </nav>
+
     <main>
-    <section>
-      <h2>Media on this page</h2>
-      <ul id="media" class="media"></ul>
-      <p id="mediaEmpty" class="empty">No video files caught yet. Play the video and it shows up here; the page itself works above.</p>
-    </section>
+      <!-- This page -->
+      <div role="tabpanel" id="panel-page" aria-labelledby="tab-page" tabindex="0">
+        <h2>Downloads on this page</h2>
+        <ul id="media" class="media"></ul>
+        <p id="mediaEmpty" class="empty">No video files caught yet. Play the video and it shows up here; the page itself works above.</p>
 
-    <section>
-      <h2>Download folders</h2>
-      <p class="empty">Each file goes to its type's folder; types left empty use the main folder.</p>
-      <div id="folders" class="folders"></div>
-      <p id="foldersNote" class="status"></p>
-    </section>
+        <p id="overlayHidden" class="notice" hidden>
+          You hid the button on this page. <a href="#" id="overlayReset">Show it again</a>
+        </p>
+        <label class="row card" id="siteRow" hidden>
+          <span>Show button on <b id="siteHost"></b></span>
+          <input type="checkbox" class="switch" id="siteOn" />
+        </label>
+        <p class="empty tip">Or right-click any link → Download with Hurtle.</p>
+      </div>
 
-    <section>
-      <h2>Hurtle app</h2>
-      <label class="row">
-        <span>Connections per download</span>
-        <select id="appConnections"></select>
-      </label>
-      <label class="row">
-        <span>Global speed limit</span>
-        <select id="appSpeedLimit"></select>
-      </label>
-      <p id="appNote" class="empty" hidden>Start Hurtle to change these.</p>
-    </section>
+      <!-- History -->
+      <div role="tabpanel" id="panel-history" aria-labelledby="tab-history" tabindex="0" hidden>
+        <div class="row">
+          <h2>Sent to Hurtle</h2>
+          <button type="button" id="historyClear" class="small">Clear</button>
+        </div>
+        <ul id="historyList" class="history"></ul>
+      </div>
 
-    <section>
-      <h2>Browser</h2>
-      <label class="row">
-        <span>Show “Download video” button over videos</span>
-        <input type="checkbox" id="overlay" />
-      </label>
-      <p id="overlayHidden" class="empty" hidden>
-        You hid the button on this page. <a href="#" id="overlayReset">Show it again</a>
-      </p>
-      <label class="row">
-        <span>Catch browser downloads</span>
-        <input type="checkbox" id="enabled" />
-      </label>
-      <label class="row">
-        <span>Show dialog before downloading</span>
-        <input type="checkbox" id="showDialog" />
-      </label>
-      <label class="row">
-        <span>Detect video and audio</span>
-        <input type="checkbox" id="sniffMedia" />
-      </label>
-      <label class="row">
-        <span>Only files larger than (MB)</span>
-        <input type="number" id="minSizeMB" min="0" step="1" />
-      </label>
-      <label class="col">
-        <span>Let the browser keep these types</span>
-        <input type="text" id="skipExtensions" placeholder="e.g. pdf jpg png" />
-      </label>
-    </section>
+      <!-- Sites -->
+      <div role="tabpanel" id="panel-sites" aria-labelledby="tab-sites" tabindex="0" hidden>
+        <label class="row card">
+          <span>Show “Download video” button over videos</span>
+          <input type="checkbox" class="switch" id="overlay" />
+        </label>
 
-    <section>
-      <h2>Troubleshooting</h2>
-      <label class="row">
-        <span>Detailed debug log</span>
-        <input type="checkbox" id="debug" />
-      </label>
-      <p class="empty">Errors are always logged. <a href="#" id="debugOpen">Open the debug log</a></p>
-    </section>
+        <h2>Sites without the button</h2>
+        <p class="empty">The button stays hidden on these sites and all their subdomains.</p>
+        <form id="offAdd" class="add" autocomplete="off">
+          <input type="text" id="offNew" placeholder="Add a site, e.g. example.com" spellcheck="false" aria-label="Add a site" />
+          <button type="submit">Add</button>
+        </form>
+        <p id="offMsg" class="status" role="status"></p>
+        <input type="search" id="offFilter" class="filter" placeholder="Filter the list" aria-label="Filter sites" hidden />
+        <ul id="offList" class="sites"></ul>
+        <p id="offEmpty" class="empty center">No sites yet. Hide the button on a page, or add a site above.</p>
+      </div>
 
+      <!-- Settings -->
+      <div role="tabpanel" id="panel-settings" aria-labelledby="tab-settings" tabindex="0" hidden>
+        <h2>Download folders</h2>
+        <p class="empty">Each file goes to its type's folder; types left empty use the main folder.</p>
+        <div id="folders" class="folders"></div>
+        <p id="foldersNote" class="status"></p>
+
+        <h2>Hurtle app</h2>
+        <label class="row">
+          <span>Connections per download</span>
+          <select id="appConnections"></select>
+        </label>
+        <label class="row">
+          <span>Global speed limit</span>
+          <select id="appSpeedLimit"></select>
+        </label>
+        <p id="appNote" class="empty" hidden>Start Hurtle to change these.</p>
+
+        <h2>Video</h2>
+        <label class="row">
+          <span>Preferred resolution</span>
+          <select id="preferredQuality">
+            <option value="0">Best available</option>
+            <option value="2160">2160p (4K)</option>
+            <option value="1440">1440p</option>
+            <option value="1080">1080p</option>
+            <option value="720">720p</option>
+            <option value="480">480p</option>
+            <option value="360">360p</option>
+          </select>
+        </label>
+        <p class="empty">Preselected in the download dialog; the closest size at or below it when a video doesn't have it.</p>
+
+        <h2>Browser downloads</h2>
+        <label class="row">
+          <span>Catch browser downloads</span>
+          <input type="checkbox" class="switch" id="enabled" />
+        </label>
+        <label class="row">
+          <span>Show dialog before downloading</span>
+          <input type="checkbox" class="switch" id="showDialog" />
+        </label>
+        <label class="row">
+          <span>Detect video and audio</span>
+          <input type="checkbox" class="switch" id="sniffMedia" />
+        </label>
+        <label class="row">
+          <span>Only files larger than (MB)</span>
+          <input type="number" id="minSizeMB" min="0" step="1" />
+        </label>
+        <label class="col">
+          <span>Let the browser keep these types</span>
+          <input type="text" id="skipExtensions" placeholder="e.g. pdf jpg png" />
+        </label>
+
+        <h2>Troubleshooting</h2>
+        <label class="row">
+          <span>Detailed debug log</span>
+          <input type="checkbox" class="switch" id="debug" />
+        </label>
+        <p class="empty">Errors are always logged. <a href="#" id="debugOpen">Open the debug log</a></p>
+      </div>
     </main>
+
     <div id="access" class="notice" hidden>
       Hurtle needs site access to see media and forward cookies for logged-in downloads.
       <button id="grant">Allow on all sites</button>
     </div>
 
     <p id="status" class="status"></p>
-
-    <footer class="bar">
-      <button id="open">Open Hurtle</button>
-      <span class="hint">Right-click a link → Download with Hurtle</span>
-    </footer>
     <script src="mediaui.js"></script>
     <script src="folders.js"></script>
     <script src="popup.js"></script>

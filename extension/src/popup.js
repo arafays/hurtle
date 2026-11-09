@@ -1,5 +1,5 @@
 const api = globalThis.browser ?? globalThis.chrome;
-const KEYS = { overlay: true, enabled: true, showDialog: true, sniffMedia: true, minSizeMB: 0, skipExtensions: "", debug: false };
+const KEYS = { overlay: true, enabled: true, showDialog: true, sniffMedia: true, minSizeMB: 0, skipExtensions: "", debug: false, preferredQuality: 1080 };
 const LIMITS = [
   [0, "Unlimited"], [128, "128 KB/s"], [256, "256 KB/s"], [512, "512 KB/s"], [1024, "1 MB/s"],
   [2048, "2 MB/s"], [5120, "5 MB/s"], [10240, "10 MB/s"], [20480, "20 MB/s"], [51200, "50 MB/s"],
@@ -13,17 +13,55 @@ function showStatus(ok, message) {
 }
 
 async function loadPrefs() {
-  const s = { ...KEYS, ...(await api.storage.local.get([...Object.keys(KEYS), "status"])) };
+  const s = { ...KEYS, ...(await api.storage.local.get(Object.keys(KEYS))) };
   for (const k of Object.keys(KEYS)) {
     const el = $(k);
     if (el.type === "checkbox") el.checked = s[k];
     else el.value = s[k];
     el.addEventListener("change", () => {
-      const v = el.type === "checkbox" ? el.checked : el.type === "number" ? Number(el.value) || 0 : el.value;
+      const v = el.type === "checkbox" ? el.checked : el.type === "number" || el.tagName === "SELECT" ? Number(el.value) || 0 : el.value;
       api.storage.local.set({ [k]: v });
     });
   }
-  if (s.status) showStatus(s.status.ok, s.status.message);
+}
+
+/** Past hand-offs, newest first. The tab only shows when there are some. */
+async function loadHistory() {
+  const render = async () => {
+    const { history, status } = await api.storage.local.get(["history", "status"]);
+    // Stores from before the history kept only the last status.
+    const list = Array.isArray(history) ? history : status ? [status] : [];
+    $("tab-history").hidden = list.length === 0;
+    if (!list.length && $("tab-history").getAttribute("aria-selected") === "true") selectTab($("tab-page"));
+    const ul = $("historyList");
+    ul.replaceChildren();
+    for (const h of list) {
+      const li = document.createElement("li");
+      if (!h.ok) li.className = "bad";
+      const dot = document.createElement("span");
+      dot.className = "dot";
+      const msg = document.createElement("span");
+      msg.className = "msg";
+      msg.textContent = msg.title = h.message || "";
+      const time = document.createElement("time");
+      const at = new Date(h.at);
+      time.dateTime = at.toISOString();
+      time.title = at.toLocaleString();
+      time.textContent = at.toDateString() === new Date().toDateString()
+        ? at.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+        : at.toLocaleDateString([], { month: "short", day: "numeric" });
+      li.append(dot, msg, time);
+      ul.append(li);
+    }
+  };
+  $("historyClear").addEventListener("click", async () => {
+    await api.storage.local.remove(["history", "status"]);
+    render();
+  });
+  api.storage.onChanged.addListener((c, area) => {
+    if ((c.history || c.status) && (!area || area === "local")) render();
+  });
+  render();
 }
 
 function report(event, data, level = "info") {
@@ -52,6 +90,8 @@ async function go(msg) {
 
 async function loadMedia() {
   const [tab] = await api.tabs.query({ active: true, currentWindow: true });
+  const pref = (await api.storage.local.get("preferredQuality")).preferredQuality;
+  const preferred = pref == null ? KEYS.preferredQuality : Number(pref) || 0;
   const [list, info] = await Promise.all([
     api.runtime.sendMessage({ type: "media-list", tabId: tab?.id }).then((l) => l || []),
     // The page knows its title, picture and each <video>'s size and length.
@@ -73,7 +113,9 @@ async function loadMedia() {
   };
   if (/^https?:/i.test(tab?.url || "")) {
     const page = { type: "download-page", pageUrl: tab.url, title, thumb: info?.image, cookieStoreId: tab.cookieStoreId };
-    const hasVideo = info?.videos?.length > 0;
+    // Ask for the sizes whenever there's something to download here: a
+    // <video>, or media the sniffer caught (as the page button does).
+    const hasVideo = info?.videos?.length > 0 || list.length > 0;
     const row = SUI.row({
       title: title || new URL(tab.url).hostname,
       sub: hasVideo ? "Reading the available sizes…" : "Video on this page · choose quality and audio",
@@ -91,7 +133,7 @@ async function loadMedia() {
         .then((r) => {
           if (r?.ok && r.sizes?.length) {
             row.setSub(SUI.sizesLine(r));
-            row.setChips(SUI.sizeChips(r.sizes));
+            row.setChips(SUI.sizeChips(r.sizes, preferred));
           } else {
             row.setSub("Video on this page · choose quality and audio");
           }
@@ -116,7 +158,7 @@ async function loadMedia() {
       thumbOpts: stream
         ? { image: v?.poster || info?.image }
         : { image: v?.poster, previewUrl: m.url, onMeta: (x) => row.setSub(SUI.details(m, x)) },
-      chips: stream && m.qualities?.length > 1 ? m.qualities : null,
+      chips: stream && m.qualities?.length > 1 ? SUI.heightChips(m.qualities, preferred) : null,
       onClick: () => send(m),
       onChip: (q) => send(m, q),
     });
@@ -224,6 +266,130 @@ $("open").addEventListener("click", async () => {
   else showStatus(false, r?.error || "Could not reach Hurtle");
 });
 
+/** Hostname from whatever was typed: "https://WWW.Example.com:8080/a?b" -> "example.com". */
+function normalizeHost(input) {
+  let s = String(input || "").trim();
+  if (!s) return "";
+  if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(s)) s = `http://${s}`;
+  let h = "";
+  try {
+    h = new URL(s).hostname;
+  } catch {
+    return "";
+  }
+  h = h.toLowerCase().replace(/\.$/, "").replace(/^www\./, "");
+  return /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*$/.test(h) ? h : "";
+}
+
+const TRASH = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>';
+
+/** Per-site switch and the manager for sites the button is hidden on. */
+async function loadOverlaySites() {
+  const [tab] = await api.tabs.query({ active: true, currentWindow: true });
+  let host = "";
+  try {
+    if (/^https?:/i.test(tab?.url || "")) host = new URL(tab.url).hostname;
+  } catch {}
+  const read = async () => {
+    const v = (await api.storage.local.get("overlayOff")).overlayOff;
+    return Array.isArray(v) ? v : [];
+  };
+  const msg = (text, bad) => {
+    $("offMsg").textContent = text || "";
+    $("offMsg").className = "status" + (bad ? " bad" : "");
+  };
+  const render = async () => {
+    const list = await read();
+    $("siteRow").hidden = !host;
+    if (host) {
+      $("siteHost").textContent = host;
+      // Shown unless the host itself or a parent domain is listed.
+      $("siteOn").checked = !HurtleUI.hostBlocked(list, host);
+      // A parent domain blocks it: unticking/ticking here edits that entry.
+      $("siteOn").title = HurtleUI.hostBlocked(list, host) && !list.includes(host) ? "Hidden through a parent domain in the Sites tab" : "";
+    }
+    const q = $("offFilter").value.trim().toLowerCase();
+    $("offFilter").hidden = list.length < 6 && !q;
+    const shown = list.filter((h) => !q || String(h).toLowerCase().includes(q)).sort();
+    $("offEmpty").hidden = shown.length > 0;
+    $("offEmpty").textContent = list.length ? "No site matches the filter." : "No sites yet. Hide the button on a page, or add a site above.";
+    const ul = $("offList");
+    ul.replaceChildren();
+    for (const h of shown) {
+      const li = document.createElement("li");
+      const name = document.createElement("span");
+      name.textContent = h;
+      if (host && HurtleUI.hostBlocked([h], host)) {
+        const here = document.createElement("small");
+        here.className = "here";
+        here.textContent = "this page";
+        name.append(here);
+      }
+      const x = document.createElement("button");
+      x.type = "button";
+      x.title = x.ariaLabel = `Show the button on ${h} again`;
+      x.innerHTML = TRASH;
+      x.addEventListener("click", async () => {
+        await api.storage.local.set({ overlayOff: (await read()).filter((e) => e !== h) });
+        msg("");
+        render();
+      });
+      li.append(name, x);
+      ul.append(li);
+    }
+  };
+  $("siteOn").addEventListener("change", async () => {
+    const cur = await read();
+    // Showing again removes the host and any parent domain that blocks it.
+    const next = $("siteOn").checked ? cur.filter((h) => !HurtleUI.hostBlocked([h], host)) : [...cur, host];
+    await api.storage.local.set({ overlayOff: next });
+    render();
+  });
+  $("offAdd").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const h = normalizeHost($("offNew").value);
+    if (!h) return msg("That doesn't look like a site name.", true);
+    const cur = await read();
+    if (cur.some((x) => String(x).toLowerCase() === h)) return msg(`${h} is already in the list.`, true);
+    await api.storage.local.set({ overlayOff: [...cur, h] });
+    $("offNew").value = "";
+    msg(`Hidden on ${h} and its subdomains.`);
+    render();
+  });
+  $("offFilter").addEventListener("input", render);
+  // Changes from the page button (or another popup) show up live.
+  api.storage.onChanged.addListener((c, area) => {
+    if (c.overlayOff && (!area || area === "local")) render();
+  });
+  render();
+}
+
+/** Tabs: click or arrow keys; "This page" opens first each time. */
+function selectTab(t, focus) {
+  for (const x of document.querySelectorAll('[role="tab"]')) {
+    const on = x === t;
+    x.setAttribute("aria-selected", on);
+    x.tabIndex = on ? 0 : -1;
+    $(x.getAttribute("aria-controls")).hidden = !on;
+  }
+  if (focus) t.focus();
+}
+
+function initTabs() {
+  for (const t of document.querySelectorAll('[role="tab"]')) {
+    t.addEventListener("click", () => selectTab(t));
+    t.addEventListener("keydown", (e) => {
+      // Hidden tabs (History when empty) are skipped.
+      const tabs = [...document.querySelectorAll('[role="tab"]:not([hidden])')];
+      const i = tabs.indexOf(t);
+      const to = { ArrowRight: i + 1, ArrowLeft: i - 1, Home: 0, End: tabs.length - 1 }[e.key];
+      if (to == null) return;
+      e.preventDefault();
+      selectTab(tabs[(to + tabs.length) % tabs.length], true);
+    });
+  }
+}
+
 async function loadOverlayState() {
   const [tab] = await api.tabs.query({ active: true, currentWindow: true });
   if (!tab?.id) return;
@@ -243,8 +409,11 @@ $("debugOpen").onclick = (e) => {
   window.close();
 };
 
+initTabs();
 loadPrefs();
+loadHistory();
 loadOverlayState();
+loadOverlaySites();
 loadMedia();
 loadApp();
 checkAccess();

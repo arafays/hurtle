@@ -39,8 +39,12 @@ async function settings() {
   return { ...DEFAULTS, ...(await api.storage.local.get(Object.keys(DEFAULTS))) };
 }
 
+/** What happened to each hand-off, newest first; the popup's History tab. */
 async function setStatus(ok, message) {
-  await api.storage.local.set({ status: { at: Date.now(), ok, message } });
+  const entry = { at: Date.now(), ok, message };
+  const { history } = await api.storage.local.get("history");
+  const next = [entry, ...(Array.isArray(history) ? history : [])].slice(0, 50);
+  await api.storage.local.set({ status: entry, history: next });
 }
 
 function basename(path) {
@@ -214,6 +218,10 @@ async function sendToHurtle(p) {
     container: p.container || null,
     // Only when chosen in the dialog; otherwise the file's type picks the folder.
     dir: p.dir || null,
+    // Where it was found, to go back for a fresh link. With the size, a new
+    // link to a paused or failed download resumes it (the reply says `resumed`).
+    pageUrl: p.sourcePage || p.pageUrl || p.referrer || null,
+    size: p.size > 0 ? p.size : null,
   };
   const name = sanitize(basename(p.filename));
   if (name) msg.filename = name;
@@ -279,7 +287,8 @@ async function resolvePending(key, action, choice = {}) {
   try {
     const reply = await sendToHurtle({ ...p, ...choice, paused: action === "later" });
     if (dl != null) await dropBrowserDownload(dl);
-    await setStatus(true, `Sent ${choice.filename || p.filename || p.url}`);
+    const verb = reply.resumed ? (action === "later" ? "New link for" : "Resumed") : "Sent";
+    await setStatus(true, `${verb} ${choice.filename || p.filename || p.url}`);
     flashBadge("✓", "#16a34a");
     return reply;
   } catch (e) {
@@ -380,9 +389,9 @@ api.downloads.onCreated.addListener(async (item) => {
     return;
   }
   try {
-    await sendToHurtle(pending);
+    const reply = await sendToHurtle(pending);
     await dropBrowserDownload(item.id);
-    await setStatus(true, `Sent ${pending.filename || url}`);
+    await setStatus(true, `${reply.resumed ? "Resumed" : "Sent"} ${pending.filename || url}`);
     flashBadge("✓", "#16a34a");
   } catch (e) {
     await setStatus(false, String(e?.message || e));
@@ -572,6 +581,7 @@ api.contextMenus.onClicked.addListener(async (info, tab) => {
     url,
     filename: isMedia ? titleFilename(tab?.title, url) : "",
     referrer: info.pageUrl || tab?.url,
+    sourcePage: tab?.url || info.pageUrl || null,
     cookieStoreId: tab?.cookieStoreId,
   });
 });
@@ -638,6 +648,7 @@ api.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           thumb: msg.thumb || null,
           referrer: msg.pageUrl || m.pageUrl || tab?.url || null,
           pageUrl: stream ? msg.pageUrl || m.pageUrl || tab?.url || null : null,
+          sourcePage: msg.pageUrl || m.pageUrl || tab?.url || null,
           cookieStoreId: tab?.cookieStoreId,
         }).then(() => ({ ok: true })),
       );

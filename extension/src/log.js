@@ -24,7 +24,7 @@ async function env() {
     `Browser        ${navigator.userAgent}`,
     `Site access    ${access ? "granted on all sites" : "NOT GRANTED: the button over videos, media detection and cookies don't work. Grant it from the toolbar popup."}`,
     `Native host    ${ping?.ok ? `reachable, hurtle-host ${ping.version}${ping.error ? ` (${ping.error})` : ", app running"}` : `NOT reachable: ${ping?.error || "no answer"}`}`,
-    `Settings       ${JSON.stringify(Object.fromEntries(Object.entries(settings).filter(([k]) => !["debugLog", "status"].includes(k))))}`,
+    `Settings       ${JSON.stringify(Object.fromEntries(Object.entries(settings).filter(([k]) => !["debugLog", "status", "history"].includes(k))))}`,
   ];
   if (settings.status) lines.push(`Last status    ${settings.status.ok ? "ok" : "error"}: ${settings.status.message} (${new Date(settings.status.at).toLocaleString()})`);
   return lines.join("\n");

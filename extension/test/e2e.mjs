@@ -339,7 +339,8 @@ try {
     let found = null;
     const walk = (n) => {
       if (found) return;
-      if (n.attributes?.includes("chip") && n.children?.[0]?.nodeValue === "720p") found = n;
+      const cls = n.attributes?.[n.attributes.indexOf("class") + 1] || "";
+      if (n.attributes?.includes("class") && cls.split(" ").includes("chip") && n.children?.[0]?.nodeValue === "720p") found = n;
       for (const c of [...(n.shadowRoots || []), ...(n.children || [])]) walk(c);
     };
     walk(doc);
