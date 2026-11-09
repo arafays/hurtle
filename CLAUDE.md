@@ -28,7 +28,7 @@ cargo run -p hurtle-core --example media_ops -- <url> <out-dir>   # yt-dlp limit
 cargo run -p hurtle-core --example pause_resume                   # segment resume across engine restarts
 ```
 
-`mise run install` builds a release, copies the binaries to `~/.local/bin`, and writes the native-messaging manifests into every existing Chrome-family config dir and into `~/.mozilla`. Zen and other Firefox forks also read `~/.mozilla`. This changes the user's browser config, so leave it to the user unless they ask. A running `hurtle` keeps its old binary until it is restarted.
+`mise run install` builds a release, copies the binaries to `~/.local/bin`, and writes the native-messaging manifests into every existing Chrome-family config dir and into `~/.mozilla`. Zen and other Firefox forks also read `~/.mozilla`. This changes the user's browser config, so leave it to the user unless they ask. With the AMO keys in `.env.local` (only those two lines are read) it also signs the Firefox build as a new unlisted AMO version (`HURTLE_SIGN=0` skips it), so don't run it just to test. A running `hurtle` keeps its old binary until it is restarted.
 
 The e2e test runs in isolation: a throwaway profile with a profile-local `NativeMessagingHosts`, and its own `HURTLE_DATA`, `HURTLE_SOCKET` and `HURTLE_APP`. Brave is the exception: it prefers the user-level manifest, so it runs the *installed* `~/.local/bin/hurtle-host`. A Brave failure can therefore just mean the install is stale.
 

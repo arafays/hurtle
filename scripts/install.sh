@@ -6,6 +6,11 @@
 #
 #   scripts/install.sh            install / update
 #   scripts/install.sh --uninstall
+#
+# With AMO_JWT_ISSUER / AMO_JWT_SECRET in the environment or in .env.local,
+# the Firefox build is also signed through AMO (unlisted) into
+# extension/dist/hurtle-firefox-<version>.xpi, which installs permanently.
+# HURTLE_SIGN=0 skips that.
 set -euo pipefail
 root=$(cd "$(dirname "$0")/.." && pwd)
 prefix=${PREFIX:-$HOME/.local}
@@ -62,12 +67,46 @@ echo "==> registering native-messaging host"
 "$bin/hurtle-host" --register | sed 's/^/    /'
 
 "$root/extension/build.sh"
+
+# Only the two AMO keys are read from .env.local, not the whole file.
+if [[ -f $root/.env.local ]]; then
+  for var in AMO_JWT_ISSUER AMO_JWT_SECRET; do
+    [[ -n ${!var:-} ]] && continue
+    val=$(sed -n "s/^[[:space:]]*\(export[[:space:]]\+\)\?$var=//p" "$root/.env.local" | tail -1)
+    val=${val%\"}; val=${val#\"}; val=${val%\'}; val=${val#\'}
+    [[ -n $val ]] && export "$var=$val"
+  done
+fi
+signed=""
+if [[ ${HURTLE_SIGN:-1} != 0 && -n ${AMO_JWT_ISSUER:-} && -n ${AMO_JWT_SECRET:-} ]]; then
+  ver=$(python3 -I -c 'import json,sys; print(json.load(open(sys.argv[1]))["version"])' "$root/extension/dist/firefox/manifest.json")
+  echo "==> signing the Firefox add-on $ver through AMO (unlisted; takes a few minutes)"
+  rm -rf "$root/extension/dist/signed"
+  if mise run ext:sign; then
+    signed="$root/extension/dist/hurtle-firefox-$ver.xpi"
+    mv "$root/extension/dist/signed/"*.xpi "$signed"
+    rmdir "$root/extension/dist/signed"
+  else
+    echo "warning: signing failed; the unsigned add-on is still built" >&2
+  fi
+fi
+
 cat <<MSG
 
 Done. Load the extension:
   Chrome/Brave/Edge/Vivaldi: chrome://extensions → Developer mode → Load unpacked → $root/extension/dist/chrome
+MSG
+if [[ -n $signed ]]; then
+  cat <<MSG
+  Firefox/Zen/LibreWolf:     about:addons → ⚙ → Install Add-on From File → $signed
+                             (signed; replaces the installed one as an update)
+MSG
+else
+  cat <<MSG
   Firefox:                   about:debugging#/runtime/this-firefox → Load Temporary Add-on → $root/extension/dist/firefox/manifest.json
+                             (or put AMO_JWT_ISSUER / AMO_JWT_SECRET in .env.local to get a signed .xpi)
   Zen/LibreWolf (permanent): about:config xpinstall.signatures.required = false,
                              then about:addons → ⚙ → Install Add-on From File → $root/extension/dist/hurtle-firefox-*-unsigned.xpi
-Then start Hurtle from your launcher or run: hurtle
 MSG
+fi
+echo "Then start Hurtle from your launcher or run: hurtle"
