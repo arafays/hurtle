@@ -1,7 +1,13 @@
 {
   "addons": {
     "hurtle@arafays.github.io": {
-      "updates": []
+      "updates": [
+        {
+          "version": "0.2.1",
+          "update_link": "https://github.com/arafays/hurtle/releases/download/v0.2.1/hurtle-firefox-0.2.1.xpi",
+          "update_hash": "sha256:acaec29b3f2452456dbf6022cdd92899d1507320c0841a6e9c84b928544eac94"
+        }
+      ]
     }
   }
 }

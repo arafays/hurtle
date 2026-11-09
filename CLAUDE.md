@@ -38,6 +38,7 @@ The e2e test runs in isolation: a throwaway profile with a profile-local `Native
 - The tag must equal `Cargo.toml`'s version.
 - `scripts/package.sh <triple>` builds the per-OS archives. macOS gets an ad-hoc-signed `Hurtle.app` with the host inside `Contents/MacOS`.
 - The extension zips are built too, plus a signed `.xpi` if AMO secrets exist.
+- The add-on is unlisted on AMO, so installed copies update from `docs/updates.json` (the gecko `update_url`, on GitHub Pages). After a stable release, the `firefox-update` job adds the signed xpi there with `scripts/firefox-update.sh` and pushes to main. Run that script by hand if a release was signed outside CI.
 - Linux build dependencies for GPUI are in `scripts/ci-linux-deps.sh`.
 - Workflows are linted with `mise run ci:lint` (actionlint).
 

@@ -160,3 +160,41 @@ jobs:
           generate_release_notes: true
           prerelease: ${{ contains(github.ref_name, '-') }}
           fail_on_unmatched_files: true
+
+  # Installed copies of the unlisted Firefox add-on update themselves from
+  # docs/updates.json (the manifest's `update_url`, on GitHub Pages). Once the
+  # release is up, list its signed xpi there and push that to main.
+  firefox-update:
+    name: Firefox update manifest
+    needs: [prepare, publish]
+    if: startsWith(github.ref, 'refs/tags/v') && !contains(github.ref_name, '-')
+    runs-on: ubuntu-22.04
+    timeout-minutes: 5
+    permissions:
+      contents: write # push docs/updates.json
+      pages: write # rebuild Pages
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+      - uses: actions/download-artifact@v8
+        with:
+          name: hurtle-extension
+          path: ext
+      - name: Update docs/updates.json
+        run: |
+          xpi="ext/hurtle-firefox-$VERSION.xpi"
+          if [[ ! -f $xpi ]]; then
+            echo "::warning::no signed xpi (AMO secrets unset?); update manifest left alone"
+            exit 0
+          fi
+          scripts/firefox-update.sh "$VERSION" "$xpi"
+          if git diff --quiet docs/updates.json; then exit 0; fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Firefox update manifest: $VERSION" docs/updates.json
+          git push origin HEAD:main
+          gh api -X POST "repos/$GITHUB_REPOSITORY/pages/builds" >/dev/null || true
