@@ -10,7 +10,8 @@
 # With AMO_JWT_ISSUER / AMO_JWT_SECRET in the environment or in .env.local,
 # the Firefox build is also signed through AMO (unlisted) into
 # extension/dist/hurtle-firefox-<version>.xpi, which installs permanently.
-# HURTLE_SIGN=0 skips that.
+# It doesn't wait for AMO's approval past ~90s: `mise run ext:fetch-signed
+# <version>` picks the xpi up later. HURTLE_SIGN=0 skips signing.
 set -euo pipefail
 root=$(cd "$(dirname "$0")/.." && pwd)
 prefix=${PREFIX:-$HOME/.local}
@@ -78,17 +79,24 @@ if [[ -f $root/.env.local ]]; then
   done
 fi
 signed=""
+pending=""
 if [[ ${HURTLE_SIGN:-1} != 0 && -n ${AMO_JWT_ISSUER:-} && -n ${AMO_JWT_SECRET:-} ]]; then
   ver=$(python3 -I -c 'import json,sys; print(json.load(open(sys.argv[1]))["version"])' "$root/extension/dist/firefox/manifest.json")
-  echo "==> signing the Firefox add-on $ver through AMO (unlisted; takes a few minutes)"
+  echo "==> submitting the Firefox add-on $ver to AMO for signing (unlisted)"
   rm -rf "$root/extension/dist/signed"
-  if mise run ext:sign; then
-    signed="$root/extension/dist/hurtle-firefox-$ver.xpi"
-    mv "$root/extension/dist/signed/"*.xpi "$signed"
-    rmdir "$root/extension/dist/signed"
-  else
-    echo "warning: signing failed; the unsigned add-on is still built" >&2
-  fi
+  # Don't block on AMO's approval: upload, check for a minute and a half, move on.
+  # A re-run in the same quarter hour resubmits the same version, which AMO
+  # refuses; the check below still finds the earlier upload.
+  mise run ext:submit || echo "warning: upload failed (already submitted?)" >&2
+  rm -rf "$root/extension/dist/signed"
+  for _ in 1 2 3 4 5 6; do
+    sleep 15
+    if "$root/scripts/amo-signed.py" "$ver" >/dev/null; then
+      signed="$root/extension/dist/hurtle-firefox-$ver.xpi"
+      break
+    fi
+  done
+  [[ -n $signed ]] || pending=$ver
 fi
 
 cat <<MSG
@@ -100,6 +108,12 @@ if [[ -n $signed ]]; then
   cat <<MSG
   Firefox/Zen/LibreWolf:     about:addons → ⚙ → Install Add-on From File → $signed
                              (signed; replaces the installed one as an update)
+MSG
+elif [[ -n $pending ]]; then
+  cat <<MSG
+  Firefox/Zen/LibreWolf:     $pending is uploaded and waiting for AMO's approval. Later, run
+                               mise run ext:fetch-signed $pending
+                             then about:addons → ⚙ → Install Add-on From File → $root/extension/dist/hurtle-firefox-$pending.xpi
 MSG
 else
   cat <<MSG

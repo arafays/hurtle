@@ -95,6 +95,16 @@ depends = ["ext:deps"]
 dir = "extension"
 run = "aube exec web-ext sign --channel unlisted --source-dir dist/firefox --artifacts-dir dist/signed --api-key \"$AMO_JWT_ISSUER\" --api-secret \"$AMO_JWT_SECRET\""
 
+[tasks."ext:submit"]
+description = "Upload the Firefox add-on to AMO for unlisted signing without waiting for approval"
+depends = ["ext:deps"]
+dir = "extension"
+run = "aube exec web-ext sign --channel unlisted --approval-timeout 0 --source-dir dist/firefox --artifacts-dir dist/signed --api-key \"$AMO_JWT_ISSUER\" --api-secret \"$AMO_JWT_SECRET\""
+
+[tasks."ext:fetch-signed"]
+description = "Download the signed xpi from AMO once approved (exit 2 while pending); [version]"
+run = "scripts/amo-signed.py"
+
 [tasks."ci:shellcheck"]
 description = "shellcheck every script"
 run = "shellcheck scripts/*.sh extension/build.sh"
