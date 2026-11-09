@@ -672,6 +672,15 @@ api.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         }).then(() => ({ ok: true })),
       );
     }
+    case "top-host": {
+      // An iframe's overlay goes by the site in the address bar, which it
+      // can't read itself across origins (Firefox has no ancestorOrigins).
+      let host = "";
+      try {
+        host = new URL(sender.tab?.url || "").hostname;
+      } catch {}
+      return reply(Promise.resolve({ host }));
+    }
     case "page-sizes":
       return reply(pageSizes(msg.pageUrl || sender.tab?.url, msg.cookieStoreId ?? sender.tab?.cookieStoreId));
     case "dialog-probe":

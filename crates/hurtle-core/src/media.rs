@@ -229,8 +229,38 @@ fn error_from(lines: &[String]) -> Option<String> {
     Some(msg.chars().take(300).collect())
 }
 
+/// Why [`probe`] found nothing to download.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ProbeError {
+    /// The page has no single video: a channel, playlist or home page.
+    /// Downloading it can't work, so the dialog says so instead of offering Start.
+    NoVideo(String),
+    /// yt-dlp couldn't read the page (it may still download it).
+    Failed(String),
+}
+
+impl ProbeError {
+    pub fn no_video(&self) -> bool {
+        matches!(self, Self::NoVideo(_))
+    }
+}
+
+impl std::fmt::Display for ProbeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::NoVideo(m) | Self::Failed(m) => f.write_str(m),
+        }
+    }
+}
+
+impl From<String> for ProbeError {
+    fn from(m: String) -> Self {
+        Self::Failed(m)
+    }
+}
+
 /// List the formats a page offers (blocking; runs `yt-dlp -J`).
-pub fn probe(url: &str, headers: &[(String, String)]) -> Result<MediaInfo, String> {
+pub fn probe(url: &str, headers: &[(String, String)]) -> Result<MediaInfo, ProbeError> {
     let bin = ensure_ytdlp(&|_, _, _| {})?;
     if needs_js(url) {
         let _ = tools::ensure(Tool::Deno, &|_, _, _| {});
@@ -289,7 +319,9 @@ pub fn probe(url: &str, headers: &[(String, String)]) -> Result<MediaInfo, Strin
             let _ = child.kill();
             let _ = child.wait();
             crate::log::log("yt-dlp", "probe timed out after 90s, killed");
-            return Err("yt-dlp took too long to read the page".into());
+            return Err(ProbeError::Failed(
+                "yt-dlp took too long to read the page".into(),
+            ));
         }
         std::thread::sleep(Duration::from_millis(50));
     };
@@ -314,11 +346,13 @@ pub fn probe(url: &str, headers: &[(String, String)]) -> Result<MediaInfo, Strin
     );
     if !status.success() {
         let lines: Vec<String> = stderr.lines().map(String::from).collect();
-        return Err(error_from(&lines).unwrap_or_else(|| format!("yt-dlp failed ({status})")));
+        return Err(ProbeError::Failed(
+            error_from(&lines).unwrap_or_else(|| format!("yt-dlp failed ({status})")),
+        ));
     }
     let v: Value = serde_json::from_slice(&stdout).map_err(|e| format!("yt-dlp output: {e}"))?;
     if v["_type"] == "playlist" {
-        return Err(playlist_error(&v));
+        return Err(ProbeError::NoVideo(playlist_error(&v)));
     }
     Ok(info_from(&v))
 }

@@ -195,6 +195,7 @@ async function loadQualities(p) {
     r?.ok ? "info" : "error",
   );
   q.replaceChildren();
+  if (r?.noVideo) return noVideo(r.error);
   if (!r?.ok || !r.media) {
     q.add(new Option("Best available", ""));
     $("error").textContent = r?.error
@@ -261,6 +262,22 @@ async function loadQualities(p) {
   }
 }
 
+/** A channel, playlist or home page: nothing here can be downloaded, so only Cancel stays. */
+let listPage = false;
+function noVideo(error) {
+  listPage = true;
+  const msg = error ? error[0].toUpperCase() + error.slice(1) : "No downloadable video found on this page";
+  $("error").textContent = `${msg}.`;
+  $("qualityRow").hidden = true;
+  $("size").textContent = "unknown";
+  for (const id of ["start", "later"]) {
+    $(id).disabled = true;
+    $(id).title = "Open a video page first";
+  }
+  $("cancel").classList.add("primary");
+  $("cancel").focus();
+}
+
 const dims = (c) => (c?.width && c?.height ? `${c.width}×${c.height}` : "");
 
 /** "1080p  ·  1920×1080  ·  ≈ 45.2 MB" ("Best quality" names its resolution too). */
@@ -298,7 +315,7 @@ async function resolve(action) {
   if (r?.ok) return window.close();
   resolving = false;
   $("error").textContent = r?.error || "Something went wrong";
-  for (const b of document.querySelectorAll("footer button")) b.disabled = false;
+  for (const b of document.querySelectorAll("footer button")) b.disabled = listPage && (b.id === "start" || b.id === "later");
 }
 
 $("start").onclick = () => resolve("start");
@@ -308,6 +325,6 @@ $("browser").onclick = () => resolve("browser");
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") return resolve("cancel");
   // Enter starts from the text fields; on a button or list it keeps its own meaning.
-  if (e.key === "Enter" && e.target instanceof HTMLInputElement && !e.isComposing) resolve("start");
+  if (e.key === "Enter" && e.target instanceof HTMLInputElement && !e.isComposing && !listPage) resolve("start");
 });
 init();

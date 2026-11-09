@@ -64,14 +64,25 @@
   let dismissed = false;
   let enabled = true; // popup switch "Show button over videos"
   let siteOff = false; // this site is in the "don't show on" list (overlayOff)
+  let ready = false; // nothing shows until the settings above are read
   let preferred = 1080; // popup setting "Preferred resolution" (0 = best)
-  const blockedNow = (list) => HurtleUI.hostBlocked(list, location.hostname);
-  api.storage.local.get(["overlay", "overlayOff", "preferredQuality"]).then((r) => {
+  // The site in the address bar: a player in an iframe (an embed host) is
+  // hidden when the page around it is, as the popup's per-site switch shows.
+  let topHost = window === top ? location.hostname : "";
+  const blockedNow = (list) =>
+    HurtleUI.hostBlocked(list, location.hostname) || (!!topHost && HurtleUI.hostBlocked(list, topHost));
+  Promise.all([
+    api.storage.local.get(["overlay", "overlayOff", "preferredQuality"]),
+    topHost
+      ? null
+      : api.runtime.sendMessage({ type: "top-host" }).then((r) => (topHost = r?.host || ""), () => {}),
+  ]).then(([r]) => {
     enabled = r.overlay !== false;
     if (r.preferredQuality != null) preferred = Number(r.preferredQuality) || 0;
     siteOff = blockedNow(r.overlayOff);
-    if (siteOff) hide();
-  }, () => {});
+    ready = true;
+    if (siteOff || !enabled) hide();
+  }, () => (ready = true));
   api.storage.onChanged.addListener((c, area) => {
     if (area !== "local") return;
     if (c.preferredQuality) preferred = Number(c.preferredQuality.newValue ?? 1080) || 0;
@@ -114,23 +125,32 @@
   }
 
   // What yt-dlp says this page's video comes in, asked once per page URL
-  // when the button first shows: { url, pending, info }.
-  let sizes = { url: "", pending: false, info: null };
+  // when the button first shows: { url, pending, info, empty }. `empty`: yt-dlp
+  // found no video (a feed, channel or home page with hover previews) and no
+  // file or stream was caught either, so the button has nothing to offer.
+  let sizes = { url: "", pending: false, info: null, empty: false };
   let sniffed = 0; // media files/streams the background caught on this page
   let onSizes = null; // re-renders the open menu when the sizes arrive
 
   function fetchSizes() {
     if (sizes.url === location.href) return;
-    sizes = { url: location.href, pending: true, info: null };
+    sizes = { url: location.href, pending: true, info: null, empty: false };
     const asked = sizes;
     updateButton();
     api.runtime
       .sendMessage({ type: "page-sizes", pageUrl: location.href })
       .catch(() => null)
-      .then((r) => {
+      .then(async (r) => {
         if (asked !== sizes) return; // the page moved on (single-page sites)
+        const info = r?.ok && r.sizes?.length ? r : null;
+        // The background's list, not `sniffed`: media caught before this
+        // script loaded never sent us a count.
+        const list = info ? null : await candidates().catch(() => []);
+        if (asked !== sizes) return;
         sizes.pending = false;
-        sizes.info = r?.ok && r.sizes?.length ? r : null;
+        sizes.info = info;
+        sizes.empty = !info && !list.length;
+        if (sizes.empty) return hide();
         updateButton();
         onSizes?.();
       });
@@ -160,12 +180,13 @@
   }
 
   function show(el) {
-    if (dismissed || !enabled || siteOff) return;
+    if (!ready || dismissed || !enabled || siteOff) return;
+    fetchSizes(); // first: a new URL on a single-page site starts over
+    if (sizes.empty && !/^https?:/i.test(srcOf(el))) return;
     clearTimeout(hideTimer);
     if (target !== el) menu.hidden = true;
     target = el;
     if (!host.isConnected) document.documentElement.appendChild(host);
-    fetchSizes();
     place();
   }
 
@@ -207,7 +228,7 @@
   const srcOf = (v) => v?.currentSrc || v?.src || "";
 
   async function candidates() {
-    const list = (await api.runtime.sendMessage({ type: "media-list" })) || [];
+    const list = (await api.runtime.sendMessage({ type: "media-list" }).catch(() => null)) || [];
     const src = target?.currentSrc || target?.src || "";
     if (/^https?:/i.test(src) && !list.some((m) => m.url === src)) {
       list.unshift({ url: src, kind: "file", mime: null, size: null });
@@ -267,7 +288,8 @@
       h.textContent = text;
       return h;
     };
-    menu.append(head("This page"), page.el);
+    // yt-dlp couldn't read the page: only the caught files and streams can download.
+    if (info || sizes.pending) menu.append(head("This page"), page.el);
     if (list.length) menu.append(head(list.length === 1 ? "Found 1 video" : `Found ${list.length} videos`));
     for (const m of list.slice(0, 12)) {
       const mine = m.url === current;
@@ -292,14 +314,16 @@
     const off = document.createElement("button");
     off.type = "button";
     off.className = "off";
-    off.textContent = `Don't show on ${location.hostname}`;
+    off.textContent = `Don't show on ${topHost || location.hostname}`;
     off.title = "Hide this button on this site; bring it back from the Hurtle toolbar button";
     off.addEventListener("click", async (e) => {
       e.preventDefault();
       e.stopPropagation();
       const cur = (await api.storage.local.get("overlayOff").catch(() => ({}))).overlayOff;
       const list = Array.isArray(cur) ? cur : [];
-      if (!HurtleUI.hostBlocked(list, location.hostname)) list.push(location.hostname);
+      // The site you see (the popup lists it), not an embedded player's host.
+      const site = topHost || location.hostname;
+      if (!HurtleUI.hostBlocked(list, site)) list.push(site);
       siteOff = true;
       hide();
       api.storage.local.set({ overlayOff: list }).catch(() => {});
@@ -345,6 +369,7 @@
   api.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     if (msg?.type === "media-updated") {
       sniffed = msg.count || 0;
+      if (sniffed) sizes.empty = false; // something to offer after all
       updateButton();
     }
     // Only a frame that hid its button answers, so any one of them is enough.

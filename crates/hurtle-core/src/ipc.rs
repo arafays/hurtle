@@ -89,6 +89,13 @@ pub struct IpcReply {
     /// `add` gave an existing paused or failed download the new link.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub resumed: Option<bool>,
+    /// `probe` found a list page (channel, playlist, home page), not a video.
+    #[serde(
+        default,
+        rename = "noVideo",
+        skip_serializing_if = "std::ops::Not::not"
+    )]
+    pub no_video: bool,
 }
 
 impl IpcReply {
@@ -100,7 +107,10 @@ impl IpcReply {
                 media: Some(info),
                 ..Self::ok(None)
             },
-            Err(e) => Self::err(e),
+            Err(e) => Self {
+                no_video: e.no_video(),
+                ..Self::err(e)
+            },
         }
     }
 

@@ -1,8 +1,10 @@
 /* Full-viewport column: identity + destination on top, scrolling options, buttons always visible. */
 [hidden] { display: none !important; }
+/* popup.css pins the toolbar popup to 400px wide and 460–600px tall; the dialog fills its window. */
+html:has(> body.dialog) { width: auto; }
 html, body.dialog { height: 100%; }
 body.dialog {
-  width: auto; min-width: 0; padding: 0; overflow: hidden;
+  width: auto; min-width: 0; min-height: 0; max-height: none; padding: 0; overflow: hidden;
   display: flex; flex-direction: column; height: 100vh; height: 100dvh;
 }
 body.dialog .top { flex: none; padding: 12px 16px 6px; border-bottom: 1px solid var(--border); min-width: 0; }

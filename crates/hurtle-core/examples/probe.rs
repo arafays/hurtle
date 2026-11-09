@@ -6,6 +6,6 @@ fn main() {
     let url = std::env::args().nth(1).expect("url");
     match hurtle_core::media::probe(&url, &[]) {
         Ok(info) => println!("{}", serde_json::to_string_pretty(&info).unwrap()),
-        Err(e) => eprintln!("error: {e}"),
+        Err(e) => eprintln!("error: {e} (no video: {})", e.no_video()),
     }
 }
