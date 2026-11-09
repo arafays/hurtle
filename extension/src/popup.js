@@ -281,7 +281,17 @@ function normalizeHost(input) {
   return /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*$/.test(h) ? h : "";
 }
 
-const TRASH = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>';
+/** The ✕ icon on each site row, built as DOM (AMO rejects innerHTML). */
+function removeIcon() {
+  const NS = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(NS, "svg");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("aria-hidden", "true");
+  const path = document.createElementNS(NS, "path");
+  path.setAttribute("d", "M6 6l12 12M18 6L6 18");
+  svg.append(path);
+  return svg;
+}
 
 /** Per-site switch and the manager for sites the button is hidden on. */
 async function loadOverlaySites() {
@@ -328,7 +338,7 @@ async function loadOverlaySites() {
       const x = document.createElement("button");
       x.type = "button";
       x.title = x.ariaLabel = `Show the button on ${h} again`;
-      x.innerHTML = TRASH;
+      x.append(removeIcon());
       x.addEventListener("click", async () => {
         await api.storage.local.set({ overlayOff: (await read()).filter((e) => e !== h) });
         msg("");
