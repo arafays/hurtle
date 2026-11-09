@@ -98,9 +98,12 @@ Push a tag that matches the version in `Cargo.toml`, e.g. `git tag v0.1.0 && git
 | `hurtle-<ver>-windows-x86_64.zip` | `hurtle.exe`, `hurtle-host.exe`, `hurtle-cli.exe` |
 | `hurtle-<ver>-macos-aarch64.zip`, `…-macos-x86_64.zip` | `Hurtle.app` (ad-hoc signed, not notarized) |
 | `hurtle-<ver>-linux-x86_64.tar.gz` | `hurtle`, `hurtle-host`, `hurtle-cli` |
-| `hurtle-chrome-<ver>.zip`, `hurtle-firefox-<ver>.zip` | the extension; a signed `.xpi` too when the `AMO_JWT_ISSUER`/`AMO_JWT_SECRET` secrets are set |
+| `hurtle-chrome-<ver>.zip`, `hurtle-firefox-<ver>.zip` | the extension, plus `hurtle-firefox-<ver>-unsigned.xpi` |
+| `hurtle-firefox-<ver>.xpi` | the Firefox add-on, signed by AMO as unlisted (needs the `AMO_JWT_ISSUER`/`AMO_JWT_SECRET` secrets) |
 
-It publishes them as a GitHub release, with the install steps from `.github/release-notes.md`. Running the workflow by hand builds the same files as artifacts, without publishing. `mise run package` builds this machine's archive into `dist/`.
+It publishes them as a GitHub release, with the install steps from `.github/release-notes.md`.
+
+**Firefox updates.** The add-on is unlisted on AMO, so AMO signs it but doesn't distribute it. Its manifest's `update_url` points at `https://arafays.github.io/hurtle/updates.json`, which is `docs/updates.json` on GitHub Pages. Firefox polls that about once a day, downloads the newest listed version from its GitHub release, checks the `sha256`, and updates in place. After a stable (non `-pre`) tagged release is published, the `firefox-update` job runs `scripts/firefox-update.sh <version> <signed.xpi>`. That script adds the entry with the hash, release-notes link and `strict_min_version`, then commits it to `main`. Run the script by hand if a version was signed outside CI. Running the workflow by hand builds the same files as artifacts, without publishing. `mise run package` builds this machine's archive into `dist/`.
 
 On first start, the app registers the `hurtle-host` next to it as the browser's native-messaging host, unless a working registration already exists. To do it explicitly, run `hurtle-host --register [path]` or `hurtle-host --unregister`.
 
@@ -121,8 +124,8 @@ mise run install
 This installs `hurtle`, `hurtle-host` and `hurtle-cli` to `~/.local/bin`, adds a desktop entry, and registers the native-messaging host for every Chrome-family and Firefox-family profile directory it finds. Then load the extension:
 
 - **Chrome / Chromium / Brave / Edge / Vivaldi:** open `chrome://extensions`, turn on Developer mode, choose **Load unpacked**, and select `extension/dist/chrome`. The extension ID is pinned (`extension/chrome-id.txt`), so it always matches the host manifest.
-- **Firefox:** open `about:debugging#/runtime/this-firefox`, choose **Load Temporary Add-on**, and select `extension/dist/firefox/manifest.json`. A temporary add-on is gone after a restart. To install it permanently, it must be signed through addons.mozilla.org (`web-ext sign`).
-- **Zen, LibreWolf, Firefox Developer Edition / Nightly:** these allow unsigned add-ons. In `about:config` set `xpinstall.signatures.required` to `false`. Then in `about:addons` → ⚙ → **Install Add-on From File…** pick `extension/dist/hurtle-firefox-<version>-unsigned.xpi`. Zen reads the native-messaging manifest from `~/.mozilla/native-messaging-hosts`, like Firefox.
+- **Firefox:** for everyday use, install the signed `hurtle-firefox-<ver>.xpi` from the latest release. It updates itself. To try a local build, open `about:debugging#/runtime/this-firefox`, choose **Load Temporary Add-on**, and select `extension/dist/firefox/manifest.json`; it is gone after a restart. Remove the installed add-on first, since both share one ID. `mise run ext:sign` signs a build with your AMO keys.
+- **Zen, LibreWolf, Firefox Developer Edition / Nightly:** these take the signed `.xpi` too. They also allow unsigned add-ons, which is handy for local builds. In `about:config` set `xpinstall.signatures.required` to `false`. Then in `about:addons` → ⚙ → **Install Add-on From File…** pick `extension/dist/hurtle-firefox-<version>-unsigned.xpi`. Zen reads the native-messaging manifest from `~/.mozilla/native-messaging-hosts`, like Firefox.
 
 Flatpak and Snap browsers can't start host binaries outside their sandbox, so use the distro packages.
 

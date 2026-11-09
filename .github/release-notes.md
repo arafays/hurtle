@@ -14,8 +14,7 @@ Running Hurtle once registers it with Chrome, Chromium, Brave, Edge, Vivaldi and
 
 **Browser extension**
 - Chrome / Brave / Edge: unzip `hurtle-chrome-*.zip`, open `chrome://extensions`, turn on *Developer mode*, click *Load unpacked*, and pick the unzipped folder.
-- Firefox: open `hurtle-firefox-*.xpi` if this release has one (signed). Otherwise use `about:debugging` → *Load Temporary Add-on* → `manifest.json` from `hurtle-firefox-*.zip`. A temporary add-on is removed when Firefox restarts.
-- Zen / LibreWolf: set `xpinstall.signatures.required` to `false` in `about:config`, then `about:addons` → ⚙ → *Install Add-on From File…* → `hurtle-firefox-*-unsigned.xpi`.
+- Firefox, Zen, LibreWolf: open `hurtle-firefox-<version>.xpi` (signed by Mozilla) and confirm. Once installed, it updates itself about once a day; `about:addons` → ⚙ → *Check for Updates* checks now. If you loaded it as a temporary add-on before, remove that first.
 
 **Video sites (YouTube etc.) and HLS/DASH streams** use yt-dlp, ffmpeg and deno. Installed copies are used if you have them; otherwise Hurtle fetches them from their official releases the first time you save a video, checks their SHA-256 sums, and keeps yt-dlp up to date.
 
