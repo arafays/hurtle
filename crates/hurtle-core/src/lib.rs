@@ -58,6 +58,12 @@ pub struct AddRequest {
     /// Output container (media only): mp4, mkv, webm, m4a, mp3, opus.
     /// None = MP4 when possible.
     pub container: Option<String>,
+    /// The page the download was found on (the tab, or the link's referrer):
+    /// where to go back to for a fresh link once this one expires.
+    pub page_url: Option<String>,
+    /// Size the browser reported, in bytes. A paused or failed download of
+    /// the same size picks up the new link and resumes instead of starting over.
+    pub size: Option<u64>,
 }
 
 impl AddRequest {
@@ -302,6 +308,9 @@ pub struct Download {
     /// Output container (media downloads); None = MP4 when possible.
     #[serde(default)]
     pub container: Option<String>,
+    /// The page this was found on; go there for a fresh link.
+    #[serde(default)]
+    pub page_url: Option<String>,
     /// What's happening besides transferring bytes ("Merging audio and video").
     #[serde(skip)]
     pub note: Option<String>,
@@ -333,6 +342,70 @@ impl Download {
             &self.url
         } else {
             &self.filename
+        }
+    }
+}
+
+/// The page a request came from: `page_url`, else its referrer (http(s) only).
+fn source_page(req: &AddRequest) -> Option<String> {
+    [&req.page_url, &req.referrer]
+        .into_iter()
+        .flatten()
+        .map(|u| u.trim())
+        .find(|u| u.starts_with("http://") || u.starts_with("https://"))
+        .map(String::from)
+}
+
+/// A download being added, as [`same_download`] compares it.
+struct Want<'a> {
+    url: &'a str,
+    kind: Kind,
+    page: Option<String>,
+    filename: Option<String>,
+    size: Option<u64>,
+    format: Option<&'a str>,
+    audio_lang: Option<&'a str>,
+    container: Option<&'a str>,
+}
+
+/// A link without its query string: signed and expiring links usually
+/// change only there (`?token=…&expires=…`).
+fn link_path(url: &str) -> &str {
+    url.split(['?', '#']).next().unwrap_or(url)
+}
+
+/// Is `want` a new link to `d`, an unfinished download in the list?
+///
+/// - The same link, or the same link with another query string.
+/// - A file of exactly the same size (at least 1 MiB) with the same name or
+///   found on the same page: an expired CDN link captured again.
+/// - A video (yt-dlp) with the same name and options from the same page:
+///   a stream whose manifest link expired.
+fn same_download(d: &Download, want: &Want) -> bool {
+    if !matches!(
+        d.status,
+        Status::Paused | Status::Failed(_) | Status::Queued
+    ) || d.kind != want.kind
+    {
+        return false;
+    }
+    if d.url == want.url {
+        return true;
+    }
+    let same_page = want.page.is_some() && d.page_url == want.page;
+    let same_name = want.filename.as_deref().is_some_and(|n| n == d.filename);
+    match d.kind {
+        Kind::File => {
+            let same_size = want
+                .size
+                .is_some_and(|s| s >= 1 << 20 && d.total == Some(s));
+            same_size && (same_name || same_page || link_path(&d.url) == link_path(want.url))
+        }
+        Kind::Media => {
+            let same_options = d.format.as_deref() == want.format
+                && d.audio_lang.as_deref() == want.audio_lang
+                && d.container.as_deref() == want.container;
+            same_options && (link_path(&d.url) == link_path(want.url) || (same_page && same_name))
         }
     }
 }
@@ -429,6 +502,14 @@ impl Engine {
             if r.status.is_active() || r.status == Status::Queued {
                 r.status = Status::Paused;
             }
+            // Stores from before `page_url`: the Referer it was sent with.
+            if r.page_url.is_none() {
+                r.page_url = r
+                    .headers
+                    .iter()
+                    .find(|(k, v)| k.eq_ignore_ascii_case("referer") && v.starts_with("http"))
+                    .map(|(_, v)| v.clone());
+            }
         }
         let next_id = records.iter().map(|r| r.id).max().unwrap_or(0) + 1;
 
@@ -497,12 +578,22 @@ impl Engine {
 
     /// Queue a download and return its id.
     pub fn add(&self, req: AddRequest) -> Result<u64> {
+        self.add_or_relink(req).map(|(id, _)| id)
+    }
+
+    /// Queue a download, or, when it is a fresh link to a paused or failed
+    /// download already in the list (see [`same_download`]), give that one
+    /// the new link and resume it. The flag says which happened.
+    pub fn add_or_relink(&self, req: AddRequest) -> Result<(u64, bool)> {
         let url = req.url.trim().to_string();
         let parsed = reqwest::Url::parse(&url).with_context(|| format!("invalid URL: {url}"))?;
         anyhow::ensure!(
             matches!(parsed.scheme(), "http" | "https"),
             "only http(s) URLs are supported"
         );
+        if let Some(id) = self.relink(&req, &url) {
+            return Ok((id, true));
+        }
         let settings = self.settings();
         // A folder for this download only ("~/Videos" from the extension too).
         let dir = match &req.dir {
@@ -559,6 +650,7 @@ impl Engine {
             format: req.format.clone().filter(|f| !f.is_empty()),
             audio_lang: req.audio_lang.clone().filter(|l| !l.is_empty()),
             container: req.container.clone().filter(|c| !c.is_empty()),
+            page_url: source_page(&req),
             note: None,
             speed: 0.0,
             active_connections: 0,
@@ -590,7 +682,74 @@ impl Engine {
         self.inner.mark_dirty();
         let _guard = self.rt.enter();
         self.inner.schedule();
-        Ok(id)
+        Ok((id, false))
+    }
+
+    /// Point a matching unfinished download at `url` (with the request's
+    /// fresh cookies and referrer) and queue it again. Its segments stay, so
+    /// the next start resumes them if the server still has the same file.
+    fn relink(&self, req: &AddRequest, url: &str) -> Option<u64> {
+        let kind = if req.media || media::is_stream_url(url) {
+            Kind::Media
+        } else {
+            Kind::File
+        };
+        let found = Want {
+            url,
+            kind,
+            page: source_page(req),
+            filename: req.filename.as_deref().map(util::sanitize_filename),
+            size: req.size,
+            format: req.format.as_deref().filter(|f| !f.is_empty()),
+            audio_lang: req.audio_lang.as_deref().filter(|l| !l.is_empty()),
+            container: req.container.as_deref().filter(|c| !c.is_empty()),
+        };
+        // The furthest along wins; `snapshot` has released every lock again.
+        let id = self
+            .snapshot()
+            .into_iter()
+            .filter(|d| same_download(d, &found))
+            .max_by_key(|d| (d.downloaded, d.id))?
+            .id;
+        let job = self.inner.job(id)?;
+        {
+            let mut rec = job.rec.lock().unwrap();
+            // It may have been started in the meantime.
+            if !matches!(
+                rec.status,
+                Status::Paused | Status::Failed(_) | Status::Queued
+            ) {
+                return None;
+            }
+            crate::log::log(
+                "app",
+                format!(
+                    "#{id} new link {} (was {}), {} of {:?} bytes kept",
+                    log::url(url),
+                    log::url(&rec.url),
+                    rec.downloaded,
+                    rec.total
+                ),
+            );
+            rec.url = url.to_string();
+            rec.final_url = None;
+            rec.headers = req.header_list();
+            if let Some(page) = found.page {
+                rec.page_url = Some(page);
+            }
+            // Another CDN node or a re-signed link often sends a different
+            // ETag for the same bytes; the size (and the probe) decide.
+            rec.etag = None;
+            rec.status = if req.paused {
+                Status::Paused
+            } else {
+                Status::Queued
+            };
+        }
+        self.inner.mark_dirty();
+        let _guard = self.rt.enter();
+        self.inner.schedule();
+        Some(id)
     }
 
     pub fn pause(&self, id: u64) {
@@ -838,8 +997,11 @@ where
 
 async fn handle_request(engine: &Engine, req: &ipc::IpcRequest) -> ipc::IpcReply {
     match req {
-        ipc::IpcRequest::Add(add) => match engine.add(add.clone()) {
-            Ok(id) => ipc::IpcReply::ok(Some(id)),
+        ipc::IpcRequest::Add(add) => match engine.add_or_relink(add.clone()) {
+            Ok((id, resumed)) => ipc::IpcReply {
+                resumed: resumed.then_some(true),
+                ..ipc::IpcReply::ok(Some(id))
+            },
             Err(e) => ipc::IpcReply::err(e),
         },
         ipc::IpcRequest::Probe(p) => {
@@ -1148,5 +1310,145 @@ mod tests {
         let old: Settings =
             serde_json::from_str(r#"{"download_dir":"/dl","connections":4}"#).unwrap();
         assert!(old.type_dirs.is_empty());
+    }
+
+    fn paused(url: &str, kind: Kind) -> Download {
+        Download {
+            id: 1,
+            url: url.into(),
+            final_url: None,
+            headers: vec![],
+            filename: "clip.mp4".into(),
+            dir: "/dl".into(),
+            auto_dir: true,
+            path: None,
+            total: Some(50 << 20),
+            resumable: true,
+            etag: None,
+            last_modified: None,
+            segments: vec![],
+            downloaded: 10 << 20,
+            status: Status::Paused,
+            connections: 8,
+            speed_limit: 0,
+            added_at: 0,
+            finished_at: None,
+            kind,
+            format: None,
+            audio_lang: None,
+            container: None,
+            page_url: Some("https://site.example/watch/1".into()),
+            note: None,
+            speed: 0.0,
+            active_connections: 0,
+        }
+    }
+
+    fn want(url: &str, kind: Kind) -> Want<'_> {
+        Want {
+            url,
+            kind,
+            page: None,
+            filename: None,
+            size: None,
+            format: None,
+            audio_lang: None,
+            container: None,
+        }
+    }
+
+    #[test]
+    fn relink_file_by_size_and_name_or_page() {
+        let d = paused("https://cdn.example/a.mp4?token=old", Kind::File);
+        let fresh = "https://cdn2.example/b.mp4?token=new";
+        // Same size alone isn't enough.
+        let w = Want {
+            size: Some(50 << 20),
+            ..want(fresh, Kind::File)
+        };
+        assert!(!same_download(&d, &w));
+        let w = Want {
+            size: Some(50 << 20),
+            filename: Some("clip.mp4".into()),
+            ..want(fresh, Kind::File)
+        };
+        assert!(same_download(&d, &w));
+        let w = Want {
+            size: Some(50 << 20),
+            page: d.page_url.clone(),
+            ..want(fresh, Kind::File)
+        };
+        assert!(same_download(&d, &w));
+        // Same link with a new token.
+        let w = Want {
+            size: Some(50 << 20),
+            ..want("https://cdn.example/a.mp4?token=new", Kind::File)
+        };
+        assert!(same_download(&d, &w));
+        // Another size, or no size: a different file.
+        let w = Want {
+            size: Some(49 << 20),
+            page: d.page_url.clone(),
+            ..want(fresh, Kind::File)
+        };
+        assert!(!same_download(&d, &w));
+        let w = Want {
+            page: d.page_url.clone(),
+            ..want(fresh, Kind::File)
+        };
+        assert!(!same_download(&d, &w));
+        // The very same link always matches.
+        assert!(same_download(&d, &want(&d.url, Kind::File)));
+    }
+
+    #[test]
+    fn relink_only_unfinished() {
+        let mut d = paused("https://cdn.example/a.mp4", Kind::File);
+        let w = Want {
+            size: Some(50 << 20),
+            filename: Some("clip.mp4".into()),
+            ..want("https://x.example/a.mp4", Kind::File)
+        };
+        for (status, ok) in [
+            (Status::Failed("server answered 403 Forbidden".into()), true),
+            (Status::Queued, true),
+            (Status::Completed, false),
+            (Status::Downloading, false),
+            (Status::Probing, false),
+        ] {
+            d.status = status;
+            assert_eq!(same_download(&d, &w), ok, "{:?}", d.status);
+        }
+    }
+
+    #[test]
+    fn relink_media_by_page_name_and_options() {
+        let d = paused("https://cdn.example/hls/master.m3u8?sig=old", Kind::Media);
+        let fresh = "https://cdn.example/hls/v2/master.m3u8?sig=new";
+        let w = Want {
+            page: d.page_url.clone(),
+            filename: Some("clip.mp4".into()),
+            ..want(fresh, Kind::Media)
+        };
+        assert!(same_download(&d, &w));
+        // Another quality is another download.
+        let w2 = Want {
+            format: Some("bv*[height<=480]+ba"),
+            ..w
+        };
+        assert!(!same_download(&d, &w2));
+        // Same manifest path with a new signature.
+        assert!(same_download(
+            &d,
+            &want("https://cdn.example/hls/master.m3u8?sig=new", Kind::Media)
+        ));
+        // A file request never takes over a video download.
+        assert!(!same_download(
+            &d,
+            &Want {
+                size: Some(50 << 20),
+                ..want(&d.url, Kind::File)
+            }
+        ));
     }
 }

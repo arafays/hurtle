@@ -86,6 +86,9 @@ pub struct IpcReply {
     pub log: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub folder: Option<String>,
+    /// `add` gave an existing paused or failed download the new link.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resumed: Option<bool>,
 }
 
 impl IpcReply {

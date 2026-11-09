@@ -160,6 +160,18 @@ impl HurtleView {
                     }) << 50,
                 )
                 .wrapping_add(d.filename.len() as u64)
+                // A fresh link (relink) or a newly known page changes the details.
+                .wrapping_add(
+                    [
+                        &d.url,
+                        d.final_url.as_deref().unwrap_or(""),
+                        d.page_url.as_deref().unwrap_or(""),
+                    ]
+                    .iter()
+                    .flat_map(|s| s.bytes())
+                    .fold(3u64, |a, b| a.wrapping_mul(31).wrapping_add(b as u64))
+                    .rotate_left(23),
+                )
                 .wrapping_add(d.segments.iter().fold(0u64, |a, s| {
                     // Per-connection speed (to 4 KiB/s) and stalls change the detail panel.
                     let stalled = s.last_data.is_some_and(|t| t.elapsed().as_secs() >= 3);
@@ -584,6 +596,24 @@ impl HurtleView {
                     ),
             )
             .child(field("Saved to", location));
+        if let Some(page) = d.page_url.clone().filter(|p| *p != d.url) {
+            let open = page.clone();
+            panel = panel.child(
+                h_flex()
+                    .gap_1()
+                    .items_center()
+                    .child(div().flex_1().min_w_0().child(field("Page", page)))
+                    .child(
+                        Button::new(("page", id))
+                            .ghost()
+                            .xsmall()
+                            .icon(IconName::Globe)
+                            .label("Open page")
+                            .tooltip("Where this was found. Play the video or click the link there again: a download of the same size picks up the new link and resumes.")
+                            .on_click(move |_, _, cx| cx.open_url(&open)),
+                    ),
+            );
+        }
 
         let live: Vec<(usize, &hurtle_core::Segment)> = d
             .segments
@@ -800,6 +830,18 @@ impl HurtleView {
                         this.engine.resume(id);
                         this.refresh(cx);
                     })),
+            );
+        }
+        // An expired link: the page it came from hands out a fresh one, and
+        // capturing it again resumes this download (`Engine::add_or_relink`).
+        if let Some(page) = d.page_url.clone().filter(|_| can_resume) {
+            actions = actions.child(
+                Button::new(("pagerow", id))
+                    .ghost()
+                    .small()
+                    .icon(IconName::Globe)
+                    .tooltip("Open the source page for a fresh link (resumes here)")
+                    .on_click(move |_, _, cx| cx.open_url(&page)),
             );
         }
         if done {
