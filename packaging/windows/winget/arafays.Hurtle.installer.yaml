@@ -1,0 +1,16 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.installer.1.6.0.schema.json
+PackageIdentifier: arafays.Hurtle
+PackageVersion: @VERSION@
+InstallerType: inno
+Scope: user
+InstallModes:
+  - interactive
+  - silent
+  - silentWithProgress
+UpgradeBehavior: install
+Installers:
+  - Architecture: x64
+    InstallerUrl: https://github.com/arafays/hurtle/releases/download/v@VERSION@/hurtle-@VERSION@-windows-x86_64-setup.exe
+    InstallerSha256: @SHA_WINDOWS_SETUP@
+ManifestType: installer
+ManifestVersion: 1.6.0

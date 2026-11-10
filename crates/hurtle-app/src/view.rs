@@ -13,6 +13,26 @@ use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use hurtle_core::{AddRequest, Download, Engine, Kind, Status, util};
 
+actions!(hurtle, [FocusSearch, Dismiss, PasteLink]);
+
+/// Window shortcuts. The URL box and search box handle their own copy/paste
+/// when focused; these cover the rest of the window.
+pub fn bind_keys(cx: &mut App) {
+    let (find, paste) = if cfg!(target_os = "macos") {
+        ("cmd-f", "cmd-v")
+    } else {
+        ("ctrl-f", "ctrl-v")
+    };
+    cx.bind_keys([
+        KeyBinding::new(find, FocusSearch, Some("HurtleView")),
+        KeyBinding::new("escape", Dismiss, Some("HurtleView")),
+        KeyBinding::new(paste, PasteLink, Some("HurtleView")),
+    ]);
+}
+
+/// Page for people who don't have the browser extension yet.
+const EXTENSION_URL: &str = "https://github.com/arafays/hurtle/releases/latest";
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Filter {
     All,
@@ -48,6 +68,8 @@ impl Filter {
 
 pub struct HurtleView {
     engine: Arc<Engine>,
+    /// Keeps keyboard shortcuts working when focus would otherwise fall out of the view.
+    focus: FocusHandle,
     url_input: Entity<InputState>,
     search_input: Entity<InputState>,
     /// Lower-cased search text.
@@ -64,6 +86,8 @@ pub struct HurtleView {
     error: Option<SharedString>,
     /// The "Download folders" panel is open instead of the list.
     show_folders: bool,
+    /// A row asking "Remove?": (id, also delete the finished file).
+    confirm: Option<(u64, bool)>,
     /// Folders as last rendered (they can change from the extension).
     folders_fp: u64,
     _poll: Task<()>,
@@ -77,10 +101,11 @@ impl HurtleView {
         cx.subscribe_in(
             &url_input,
             window,
-            |this, _, ev: &InputEvent, window, cx| {
-                if let InputEvent::PressEnter { .. } = ev {
-                    this.submit(window, cx);
-                }
+            |this, _, ev: &InputEvent, window, cx| match ev {
+                InputEvent::PressEnter { .. } => this.submit(window, cx),
+                // A stale error would otherwise stay until the next submit.
+                InputEvent::Change if this.error.take().is_some() => cx.notify(),
+                _ => {}
             },
         )
         .detach();
@@ -122,6 +147,7 @@ impl HurtleView {
         let connections = engine.settings().connections;
         let mut this = Self {
             engine,
+            focus: cx.focus_handle(),
             url_input,
             search_input,
             query: String::new(),
@@ -134,55 +160,28 @@ impl HurtleView {
             error: None,
             // HURTLE_VIEW=folders opens on the folders panel (screenshots, tests).
             show_folders: std::env::var("HURTLE_VIEW").is_ok_and(|v| v == "folders"),
+            confirm: None,
             folders_fp: 0,
             _poll: poll,
         };
         this.refresh(cx);
+        let url_focus = this.url_input.read(cx).focus_handle(cx);
+        window.focus(&url_focus, cx);
         this
     }
 
     fn refresh(&mut self, cx: &mut Context<Self>) {
         let downloads = self.engine.snapshot();
-        let fp = downloads.iter().fold(downloads.len() as u64, |acc, d| {
-            let status = match &d.status {
-                Status::Failed(e) => 100 + e.len() as u64,
-                s => s.label().len() as u64,
-            };
-            acc.wrapping_mul(31)
-                .wrapping_add(d.id ^ d.downloaded ^ (d.speed as u64) << 1 ^ status << 7)
-                .wrapping_add(d.active_connections as u64 + d.segments.len() as u64 * 131)
-                .wrapping_add(d.total.unwrap_or(0))
-                .wrapping_add(d.speed_limit.rotate_left(17) ^ (d.connections as u64) << 40)
-                .wrapping_add(
-                    d.note.as_ref().map_or(0, |n| {
-                        n.bytes()
-                            .fold(7u64, |a, b| a.wrapping_mul(31).wrapping_add(b as u64))
-                    }) << 50,
-                )
-                .wrapping_add(d.filename.len() as u64)
-                // A fresh link (relink) or a newly known page changes the details.
-                .wrapping_add(
-                    [
-                        &d.url,
-                        d.final_url.as_deref().unwrap_or(""),
-                        d.page_url.as_deref().unwrap_or(""),
-                    ]
-                    .iter()
-                    .flat_map(|s| s.bytes())
-                    .fold(3u64, |a, b| a.wrapping_mul(31).wrapping_add(b as u64))
-                    .rotate_left(23),
-                )
-                .wrapping_add(d.segments.iter().fold(0u64, |a, s| {
-                    // Per-connection speed (to 4 KiB/s) and stalls change the detail panel.
-                    let stalled = s.last_data.is_some_and(|t| t.elapsed().as_secs() >= 3);
-                    a.wrapping_mul(7).wrapping_add(
-                        (s.speed >> 12) ^ (s.owned as u64) << 3 ^ (stalled as u64) << 4,
-                    )
-                }))
-        });
+        let fp = fingerprint(&downloads);
         if fp != self.fingerprint {
             self.fingerprint = fp;
             self.downloads = downloads;
+            if self
+                .confirm
+                .is_some_and(|(id, _)| !self.downloads.iter().any(|d| d.id == id))
+            {
+                self.confirm = None;
+            }
             cx.notify();
         }
         let settings = self.engine.settings();
@@ -192,6 +191,8 @@ impl HurtleView {
             settings.download_dir.hash(&mut h);
             settings.type_dirs.hash(&mut h);
             settings.connections.hash(&mut h);
+            settings.auto_retry.hash(&mut h);
+            settings.notify.hash(&mut h);
             h.finish()
         };
         if folders_fp != self.folders_fp {
@@ -375,6 +376,52 @@ impl HurtleView {
                 cx,
             ));
         }
+        panel = panel.child(
+            v_flex()
+                .px_4()
+                .pt_4()
+                .pb_2()
+                .child(div().text_base().font_semibold().child("Behavior")),
+        );
+        for (id, label, on) in [
+            (
+                "retry",
+                "Retry failed downloads automatically",
+                s.auto_retry,
+            ),
+            (
+                "notify",
+                "Notify when a download finishes or fails",
+                s.notify,
+            ),
+        ] {
+            panel = panel.child(
+                h_flex()
+                    .gap_3()
+                    .px_4()
+                    .py_2()
+                    .items_center()
+                    .border_b_1()
+                    .border_color(cx.theme().border)
+                    .child(div().flex_1().text_sm().child(label))
+                    .child(
+                        Button::new(SharedString::from(format!("toggle-{id}")))
+                            .outline()
+                            .xsmall()
+                            .selected(on)
+                            .label(if on { "On" } else { "Off" })
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                let mut s = this.engine.settings();
+                                match id {
+                                    "retry" => s.auto_retry = !s.auto_retry,
+                                    _ => s.notify = !s.notify,
+                                }
+                                this.engine.set_settings(s);
+                                this.refresh(cx);
+                            })),
+                    ),
+            );
+        }
         panel.into_any_element()
     }
 
@@ -389,7 +436,7 @@ impl HurtleView {
             let mut req = AddRequest::new(url);
             req.connections = Some(self.connections);
             if let Err(e) = self.engine.add(req) {
-                errors.push(e.to_string());
+                errors.push(format!("{}: {e}", shorten(url, 48)));
             }
         }
         self.error = (!errors.is_empty()).then(|| errors.join("\n").into());
@@ -399,6 +446,27 @@ impl HurtleView {
         }
         self.refresh(cx);
         cx.notify();
+    }
+
+    /// Add the links on the clipboard (if it holds any) as downloads.
+    fn paste_link(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let text = cx
+            .read_from_clipboard()
+            .and_then(|c| c.text())
+            .unwrap_or_default();
+        let links: Vec<&str> = text
+            .split_whitespace()
+            .filter(|t| t.starts_with("http://") || t.starts_with("https://"))
+            .collect();
+        if links.is_empty() {
+            self.error = Some("The clipboard has no link (http:// or https://).".into());
+            cx.notify();
+            return;
+        }
+        let joined = links.join(" ");
+        self.url_input
+            .update(cx, |input, cx| input.set_value(joined, window, cx));
+        self.submit(window, cx);
     }
 
     fn set_connections(&mut self, n: usize, cx: &mut Context<Self>) {
@@ -434,6 +502,7 @@ impl HurtleView {
                             .ghost()
                             .xsmall()
                             .icon(IconName::Minus)
+                            .tooltip("Fewer connections per file")
                             .disabled(n <= 1)
                             .on_click(cx.listener(move |this, _, _, cx| {
                                 this.set_connections(n.saturating_sub(1), cx)
@@ -441,16 +510,17 @@ impl HurtleView {
                     )
                     .child(
                         div()
-                            .min_w(px(64.))
+                            .min_w(px(88.))
                             .text_center()
                             .text_sm()
-                            .child(format!("{n} conn{}", if n == 1 { "" } else { "s" })),
+                            .child(format!("{n} conn{} / file", if n == 1 { "" } else { "s" })),
                     )
                     .child(
                         Button::new("conn-inc")
                             .ghost()
                             .xsmall()
                             .icon(IconName::Plus)
+                            .tooltip("More connections per file")
                             .disabled(n >= 32)
                             .on_click(
                                 cx.listener(move |this, _, _, cx| this.set_connections(n + 1, cx)),
@@ -821,7 +891,9 @@ impl HurtleView {
                     .ghost()
                     .small()
                     .icon(IconName::Play)
-                    .tooltip(if d.resumable || d.downloaded == 0 {
+                    .tooltip(if matches!(d.status, Status::Failed(_)) {
+                        "Retry"
+                    } else if d.resumable || d.downloaded == 0 {
                         "Resume"
                     } else {
                         "Restart (server can't resume)"
@@ -846,17 +918,27 @@ impl HurtleView {
         }
         if done {
             let file = path.clone();
+            let open_dir = dir.clone();
             actions = actions.child(
                 Button::new(("open", id))
                     .ghost()
                     .small()
                     .icon(IconName::ExternalLink)
                     .tooltip("Open file")
-                    .on_click(move |_, _, cx| {
-                        if let Some(p) = &file {
-                            cx.open_with_system(p);
+                    .on_click(cx.listener(move |this, _, _, cx| match &file {
+                        Some(p) if p.exists() => cx.open_with_system(p),
+                        missing => {
+                            // Moved or deleted: say so and show the folder.
+                            let name = missing
+                                .as_ref()
+                                .and_then(|p| p.file_name())
+                                .map(|n| n.to_string_lossy().into_owned())
+                                .unwrap_or_default();
+                            this.error = Some(format!("{name} was moved or deleted.").into());
+                            cx.open_with_system(&open_dir);
+                            cx.notify();
                         }
-                    }),
+                    })),
             );
         }
         let copy = d.url.clone();
@@ -881,22 +963,79 @@ impl HurtleView {
                         Some(p) if p.exists() => cx.reveal_path(p),
                         _ => cx.open_with_system(&dir),
                     }),
-            )
-            .child(
-                Button::new(("remove", id))
+            );
+        if done {
+            actions = actions.child(
+                Button::new(("trash", id))
                     .ghost()
                     .small()
-                    .icon(IconName::Close)
-                    .tooltip(if done {
-                        "Remove from list (keeps the file)"
-                    } else {
-                        "Cancel and remove"
-                    })
+                    .icon(IconName::Delete)
+                    .tooltip("Delete the file from disk")
                     .on_click(cx.listener(move |this, _, _, cx| {
-                        this.engine.remove(id, false);
-                        this.refresh(cx);
+                        this.confirm = Some((id, true));
+                        cx.notify();
                     })),
             );
+        }
+        // Partial progress is lost on remove, so ask first when there is some.
+        let risky = !done && d.downloaded > 0;
+        actions = actions.child(
+            Button::new(("remove", id))
+                .ghost()
+                .small()
+                .icon(IconName::Close)
+                .tooltip(if done {
+                    "Remove from list (keeps the file)"
+                } else {
+                    "Cancel and remove"
+                })
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    if risky {
+                        this.confirm = Some((id, false));
+                    } else {
+                        this.engine.remove(id, false);
+                    }
+                    this.refresh(cx);
+                    cx.notify();
+                })),
+        );
+        if let Some((_, delete)) = self.confirm.filter(|(cid, _)| *cid == id) {
+            actions = h_flex()
+                .gap_1()
+                .items_center()
+                .child(
+                    div()
+                        .text_xs()
+                        .text_color(theme.muted_foreground)
+                        .child(if delete {
+                            "Delete the file?"
+                        } else {
+                            "Discard the download?"
+                        }),
+                )
+                .child(
+                    Button::new(("rm-yes", id))
+                        .danger()
+                        .xsmall()
+                        .label(if delete { "Delete" } else { "Remove" })
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            this.confirm = None;
+                            this.engine.remove(id, delete);
+                            this.refresh(cx);
+                            cx.notify();
+                        })),
+                )
+                .child(
+                    Button::new(("rm-no", id))
+                        .ghost()
+                        .xsmall()
+                        .label("Keep")
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.confirm = None;
+                            cx.notify();
+                        })),
+                );
+        }
 
         let detail_panel = expanded.then(|| self.render_detail(d, cx));
         let theme = cx.theme();
@@ -950,7 +1089,10 @@ impl HurtleView {
                                     } else {
                                         theme.muted_foreground
                                     })
-                                    .truncate()
+                                    // A failure is the thing to read: let it wrap.
+                                    .when(!matches!(d.status, Status::Failed(_)), |el| {
+                                        el.truncate()
+                                    })
                                     .child(detail),
                             ),
                     )
@@ -1181,8 +1323,34 @@ impl Render for HurtleView {
                 .child(div().text_xs().child(if any {
                     "Change the filter or clear the search."
                 } else {
-                    "Paste a link above, or install the browser extension to catch downloads."
+                    "Paste a link above, or let the browser extension hand downloads over. Video page links work too."
                 }))
+                .when(!any, |el| {
+                    el.child(
+                        h_flex()
+                            .pt_2()
+                            .gap_2()
+                            .child(
+                                Button::new("empty-paste")
+                                    .primary()
+                                    .small()
+                                    .icon(IconName::ArrowDown)
+                                    .label("Paste link")
+                                    .tooltip("Download the link on the clipboard")
+                                    .on_click(
+                                        cx.listener(|this, _, window, cx| this.paste_link(window, cx)),
+                                    ),
+                            )
+                            .child(
+                                Button::new("empty-ext")
+                                    .outline()
+                                    .small()
+                                    .icon(IconName::Globe)
+                                    .label("Get the browser extension")
+                                    .on_click(|_, _, cx| cx.open_url(EXTENSION_URL)),
+                            ),
+                    )
+                })
                 .into_any_element()
         } else {
             div()
@@ -1195,6 +1363,33 @@ impl Render for HurtleView {
 
         v_flex()
             .size_full()
+            .key_context("HurtleView")
+            .track_focus(&self.focus)
+            .on_action(cx.listener(|this, _: &FocusSearch, window, cx| {
+                let handle = this.search_input.read(cx).focus_handle(cx);
+                window.focus(&handle, cx);
+            }))
+            .on_action(cx.listener(|this, _: &PasteLink, window, cx| this.paste_link(window, cx)))
+            .on_action(cx.listener(|this, _: &Dismiss, window, cx| {
+                if this.show_folders {
+                    this.show_folders = false;
+                } else if this.confirm.take().is_none() && !this.query.is_empty() {
+                    this.search_input
+                        .update(cx, |input, cx| input.set_value("", window, cx));
+                }
+                this.error = None;
+                // The confirm row's button may have held focus.
+                let inner = this.url_input.read(cx).focus_handle(cx).is_focused(window)
+                    || this
+                        .search_input
+                        .read(cx)
+                        .focus_handle(cx)
+                        .is_focused(window);
+                if !inner {
+                    window.focus(&this.focus, cx);
+                }
+                cx.notify();
+            }))
             .bg(theme.background)
             .text_color(theme.foreground)
             .child(
@@ -1275,6 +1470,62 @@ impl Render for HurtleView {
     }
 }
 
+pub(crate) fn fingerprint(downloads: &[Download]) -> u64 {
+    downloads.iter().fold(downloads.len() as u64, |acc, d| {
+        // Queued and Paused have labels of the same length, so hash the
+        // state itself (and the whole error, not just its length).
+        let status = match &d.status {
+            Status::Queued => 1,
+            Status::Probing => 2,
+            Status::Downloading => 3,
+            Status::Paused => 4,
+            Status::Completed => 5,
+            Status::Failed(e) => e
+                .bytes()
+                .fold(6u64, |a, b| a.wrapping_mul(31).wrapping_add(b as u64)),
+        };
+        acc.wrapping_mul(31)
+            .wrapping_add(d.id ^ d.downloaded ^ (d.speed as u64) << 1 ^ status << 7)
+            .wrapping_add(d.active_connections as u64 + d.segments.len() as u64 * 131)
+            .wrapping_add(d.total.unwrap_or(0))
+            .wrapping_add(d.speed_limit.rotate_left(17) ^ (d.connections as u64) << 40)
+            .wrapping_add(
+                d.note.as_ref().map_or(0, |n| {
+                    n.bytes()
+                        .fold(7u64, |a, b| a.wrapping_mul(31).wrapping_add(b as u64))
+                }) << 50,
+            )
+            .wrapping_add(d.filename.len() as u64)
+            // A fresh link (relink) or a newly known page changes the details.
+            .wrapping_add(
+                [
+                    &d.url,
+                    d.final_url.as_deref().unwrap_or(""),
+                    d.page_url.as_deref().unwrap_or(""),
+                ]
+                .iter()
+                .flat_map(|s| s.bytes())
+                .fold(3u64, |a, b| a.wrapping_mul(31).wrapping_add(b as u64))
+                .rotate_left(23),
+            )
+            .wrapping_add(d.segments.iter().fold(0u64, |a, s| {
+                // Per-connection speed (to 4 KiB/s) and stalls change the detail panel.
+                let stalled = s.last_data.is_some_and(|t| t.elapsed().as_secs() >= 3);
+                a.wrapping_mul(7)
+                    .wrapping_add((s.speed >> 12) ^ (s.owned as u64) << 3 ^ (stalled as u64) << 4)
+            }))
+    })
+}
+
+/// Keep error lines short: `https://example.com/very/long…`.
+fn shorten(s: &str, max: usize) -> String {
+    if s.chars().count() <= max {
+        s.to_string()
+    } else {
+        format!("{}…", s.chars().take(max).collect::<String>())
+    }
+}
+
 /// `~/Downloads` instead of `/home/me/Downloads`.
 fn short_path(p: &std::path::Path) -> String {
     if let Some(home) = dirs::home_dir()
@@ -1287,4 +1538,31 @@ fn short_path(p: &std::path::Path) -> String {
         };
     }
     p.display().to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Download, Status, fingerprint};
+
+    fn download(status: Status) -> Download {
+        let mut d: Download = serde_json::from_str(
+            r#"{"id":1,"url":"http://x/f","final_url":null,"headers":[],"filename":"f",
+            "dir":"/tmp","path":null,"total":null,"resumable":true,"etag":null,
+            "last_modified":null,"segments":[],"downloaded":0,"status":{"state":"queued"},
+            "connections":4,"added_at":0,"finished_at":null}"#,
+        )
+        .expect("download json");
+        d.status = status;
+        d
+    }
+
+    #[test]
+    fn fingerprint_tells_states_apart() {
+        let fp = |s| fingerprint(&[download(s)]);
+        assert_ne!(fp(Status::Queued), fp(Status::Paused));
+        assert_ne!(
+            fp(Status::Failed("server said no".into())),
+            fp(Status::Failed("server said ok!".into()))
+        );
+    }
 }

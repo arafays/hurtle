@@ -11,3 +11,7 @@ updates:
     open-pull-requests-limit: 5
     groups:
       cargo: { patterns: ["*"], update-types: [minor, patch] }
+  # Not covered: extension/ (web-ext, a dev-only lint tool). Its lockfile is
+  # aube-lock.yaml, which Dependabot's npm ecosystem cannot read or update;
+  # `aube update` by hand when needed. Cargo security advisories are checked by
+  # `cargo deny` in CI (deny.toml) and by GitHub's Dependabot security alerts.

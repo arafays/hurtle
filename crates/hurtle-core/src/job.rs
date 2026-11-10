@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 use futures_util::StreamExt;
 use reqwest::header::{
     ACCEPT_ENCODING, CONTENT_DISPOSITION, CONTENT_RANGE, CONTENT_TYPE, ETAG, HeaderMap, HeaderName,
-    HeaderValue, LAST_MODIFIED, RANGE,
+    HeaderValue, IF_RANGE, LAST_MODIFIED, RANGE, RETRY_AFTER,
 };
 use reqwest::{Response, StatusCode};
 use tokio::task::JoinSet;
@@ -20,12 +20,7 @@ use crate::sched::{self, Plan, Ramp, SegView, Tuning};
 use crate::{Inner, Job, Kind, Segment, Status, media, util};
 
 pub(crate) async fn run(inner: Arc<Inner>, job: Arc<Job>, token: CancellationToken) {
-    let media = job.rec.lock().unwrap().kind == Kind::Media;
-    let result = if media {
-        media::drive(&inner, &job, &token).await
-    } else {
-        drive(&inner, &job, &token).await
-    };
+    let result = run_with_retries(&inner, &job, &token).await;
     job.kill_child();
     {
         let mut rec = job.rec.lock().unwrap();
@@ -67,6 +62,259 @@ pub(crate) async fn run(inner: Arc<Inner>, job: Arc<Job>, token: CancellationTok
     inner.schedule();
 }
 
+/// The remote file changed while we held part of it.
+pub(crate) const FILE_CHANGED: &str = "the file changed on the server";
+
+/// Automatic retries after a network failure: 30 s, 1 min, 2 min, 5 min, 5 min.
+const AUTO_RETRY_DELAYS: [u64; 5] = [30, 60, 120, 300, 300];
+
+/// How long to wait before retry number `attempt` (1-based); None when used up.
+fn auto_retry_delay(attempt: u32) -> Option<Duration> {
+    let i = (attempt as usize).checked_sub(1)?;
+    AUTO_RETRY_DELAYS.get(i).map(|s| Duration::from_secs(*s))
+}
+
+/// Whether an error is the network's fault and worth trying again later:
+/// dropped or refused connections, timeouts, 5xx, 408 and 429. Missing files
+/// (404, 403, 410…), disk errors and protocol surprises stay failures.
+fn is_transient(e: &str) -> bool {
+    let e = e.to_ascii_lowercase();
+    if let Some(rest) = e.strip_prefix("server answered ") {
+        let code: u16 = rest
+            .split_whitespace()
+            .next()
+            .and_then(|c| c.parse().ok())
+            .unwrap_or(0);
+        return code == 408 || code == 429 || (500..600).contains(&code);
+    }
+    if e.starts_with("write failed") || e.contains("no space left") {
+        return false;
+    }
+    // Certificate, TLS and redirect-policy failures will not heal by waiting.
+    if [
+        "certificate",
+        "invalid peer",
+        "tls handshake",
+        "handshake",
+        "unknownissuer",
+        "redirect",
+    ]
+    .iter()
+    .any(|m| e.contains(m))
+    {
+        return false;
+    }
+    [
+        "timed out",
+        "connection",
+        "error decoding response body",
+        "error reading a body",
+        "broken pipe",
+        "dns error",
+        "unreachable",
+    ]
+    .iter()
+    .any(|m| e.contains(m))
+}
+
+/// `drive` (or yt-dlp) until it succeeds, with two kinds of second chances:
+/// a changed remote file restarts from zero, and a network failure waits and
+/// tries again (resuming from the segments already on disk).
+async fn run_with_retries(
+    inner: &Arc<Inner>,
+    job: &Arc<Job>,
+    token: &CancellationToken,
+) -> Result<(), String> {
+    let mut retries = 0u32;
+    let mut restarts = 0u32;
+    loop {
+        let (media, before) = {
+            let rec = job.rec.lock().unwrap();
+            (rec.kind == Kind::Media, rec.downloaded)
+        };
+        let result = if media {
+            media::drive(inner, job, token).await
+        } else {
+            drive(inner, job, token).await
+        };
+        let Err(e) = result else { return Ok(()) };
+        if token.is_cancelled() {
+            return Err(e);
+        }
+        if e == FILE_CHANGED && restarts < 2 {
+            restarts += 1;
+            let mut rec = job.rec.lock().unwrap();
+            rec.segments.clear();
+            rec.downloaded = 0;
+            rec.total = None;
+            rec.etag = None;
+            rec.last_modified = None;
+            continue;
+        }
+        let auto = inner.settings.lock().unwrap().auto_retry;
+        let kind_media = job.rec.lock().unwrap().kind == Kind::Media;
+        // yt-dlp has retries of its own.
+        if !auto || kind_media || !is_transient(&e) {
+            return Err(e);
+        }
+        if job.rec.lock().unwrap().downloaded > before {
+            retries = 0;
+        }
+        retries += 1;
+        let Some(delay) = auto_retry_delay(retries) else {
+            return Err(e);
+        };
+        crate::log::log(
+            "app",
+            format!(
+                "#{} {e}; retry {retries}/{} in {}s",
+                job.rec.lock().unwrap().id,
+                AUTO_RETRY_DELAYS.len(),
+                delay.as_secs()
+            ),
+        );
+        let until = Instant::now() + delay;
+        loop {
+            let left = until.saturating_duration_since(Instant::now());
+            {
+                let mut rec = job.rec.lock().unwrap();
+                rec.speed = 0.0;
+                rec.active_connections = 0;
+                rec.note = Some(format!(
+                    "Connection lost, retrying in {} (attempt {retries}/{})",
+                    util::fmt_duration(left.as_secs() + 1),
+                    AUTO_RETRY_DELAYS.len()
+                ));
+            }
+            if left.is_zero() {
+                break;
+            }
+            tokio::select! {
+                _ = token.cancelled() => return Err("cancelled".into()),
+                _ = tokio::time::sleep(left.min(Duration::from_secs(1))) => {}
+            }
+        }
+        job.rec.lock().unwrap().note = None;
+    }
+}
+
+/// The stored validators agree with the server's now. The ETag is compared
+/// when both sides have it; Last-Modified only when neither side has an ETag,
+/// since some servers send an unstable Last-Modified but still honour Range.
+fn same_validators(
+    old_etag: &Option<String>,
+    etag: &Option<String>,
+    old_modified: &Option<String>,
+    modified: &Option<String>,
+) -> bool {
+    let agree = |a: &Option<String>, b: &Option<String>| a.is_none() || b.is_none() || a == b;
+    if old_etag.is_some() && etag.is_some() {
+        return old_etag == etag;
+    }
+    if old_etag.is_none() && etag.is_none() {
+        return agree(old_modified, modified);
+    }
+    true
+}
+
+/// `Content-Range: bytes 0-0/N`: N, if the server knows it.
+fn range_total(h: &HeaderMap) -> Option<u64> {
+    h.get(CONTENT_RANGE)
+        .and_then(|v| v.to_str().ok())
+        .and_then(util::total_from_content_range)
+}
+
+/// The first request: `Range: bytes=0-0` (or, as a fallback, a plain GET).
+/// Connect errors, timeouts, 429 and 502-504 are tried again a couple of times.
+async fn send_probe(
+    inner: &Inner,
+    token: &CancellationToken,
+    url: &str,
+    headers: &HeaderMap,
+    range: bool,
+) -> Result<Response, String> {
+    let mut attempt = 0u32;
+    loop {
+        let mut req = inner.client.get(url).headers(headers.clone());
+        if range {
+            req = req.header(RANGE, "bytes=0-0");
+        }
+        let sent = tokio::select! {
+            _ = token.cancelled() => return Err("cancelled".into()),
+            r = req.send() => r,
+        };
+        let backoff = Duration::from_secs(1 << attempt);
+        let wait = match sent {
+            Ok(r) if attempt < 2 && probe_retryable(r.status()) => r
+                .headers()
+                .get(RETRY_AFTER)
+                .and_then(|v| v.to_str().ok())
+                .and_then(|v| v.trim().parse::<u64>().ok())
+                .map_or(backoff, |s| Duration::from_secs(s.min(30))),
+            Ok(r) => return Ok(r),
+            Err(e) if attempt < 2 && (e.is_connect() || e.is_timeout()) => backoff,
+            Err(e) => return Err(describe(&e)),
+        };
+        attempt += 1;
+        tokio::select! {
+            _ = token.cancelled() => return Err("cancelled".into()),
+            _ = tokio::time::sleep(wait) => {}
+        }
+    }
+}
+
+fn probe_retryable(s: StatusCode) -> bool {
+    s == StatusCode::TOO_MANY_REQUESTS
+        || s == StatusCode::BAD_GATEWAY
+        || s == StatusCode::SERVICE_UNAVAILABLE
+        || s == StatusCode::GATEWAY_TIMEOUT
+}
+
+/// Paths other downloads have claimed. Takes `jobs` and then each record,
+/// the allowed lock order; call it with no record lock held.
+fn sibling_paths(inner: &Inner, my_id: u64) -> Vec<std::path::PathBuf> {
+    inner
+        .jobs
+        .lock()
+        .unwrap()
+        .iter()
+        .filter_map(|j| {
+            let r = j.rec.lock().unwrap();
+            (r.id != my_id).then(|| r.path.clone()).flatten()
+        })
+        .collect()
+}
+
+/// Move the finished `.part` into place. If someone created the target in
+/// the meantime, take the next free name instead of overwriting it.
+fn place(
+    inner: &Inner,
+    job: &Job,
+    part: &std::path::Path,
+    path: std::path::PathBuf,
+) -> Result<(), String> {
+    let _claim = inner.path_claim.lock().unwrap();
+    let mut path = path;
+    if path.exists() {
+        let my_id = job.rec.lock().unwrap().id;
+        let siblings = sibling_paths(inner, my_id);
+        let name = path
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_else(|| "download".into());
+        let dir = path.parent().unwrap_or(std::path::Path::new("."));
+        path = util::unique_path(dir, &name, |p| siblings.iter().any(|s| s == p));
+        let mut rec = job.rec.lock().unwrap();
+        rec.filename = name_of(&path).unwrap_or_else(|| rec.filename.clone());
+        rec.path = Some(path.clone());
+    }
+    std::fs::rename(part, &path).map_err(|e| format!("renaming to {}: {e}", path.display()))
+}
+
+fn name_of(path: &std::path::Path) -> Option<String> {
+    path.file_name().map(|n| n.to_string_lossy().into_owned())
+}
+
 async fn drive(
     inner: &Arc<Inner>,
     job: &Arc<Job>,
@@ -78,17 +326,28 @@ async fn drive(
     };
 
     // ---- Probe: one byte via Range tells us size, resumability and the name.
-    let probe = tokio::select! {
-        _ = token.cancelled() => return Err("cancelled".into()),
-        r = inner.client.get(&url).headers(headers.clone()).header(RANGE, "bytes=0-0").send() => {
-            r.map_err(|e| describe(&e))?
-        }
-    };
+    let mut probe = send_probe(inner, token, &url, &headers, true).await?;
+    // Empty files answer 416, and some servers refuse Range outright: ask
+    // again without it (a plain, single-stream download).
+    if matches!(probe.status().as_u16(), 400 | 405 | 416 | 501) {
+        probe = send_probe(inner, token, &url, &headers, false).await?;
+    }
+    // "206 … bytes 0-0/*": the body is one byte of an unknown whole. Fetch it
+    // all in one stream instead.
+    if probe.status() == StatusCode::PARTIAL_CONTENT && range_total(probe.headers()).is_none() {
+        probe = send_probe(inner, token, &url, &headers, false).await?;
+    }
     let status = probe.status();
     if !(status == StatusCode::PARTIAL_CONTENT || status.is_success()) {
         return Err(format!("server answered {status}"));
     }
     let final_url = probe.url().to_string();
+    // Cookies were gathered for the original site: don't replay them to a
+    // different host the link redirected to.
+    let seg_headers = match reqwest::Url::parse(&url) {
+        Ok(orig) => util::headers_for_redirect(&orig, probe.url(), &headers),
+        Err(_) => headers.clone(),
+    };
     let h = probe.headers();
 
     // A web page or a stream manifest rather than a file: a video page link
@@ -111,9 +370,7 @@ async fn drive(
 
     let ranged = status == StatusCode::PARTIAL_CONTENT;
     let total = if ranged {
-        h.get(CONTENT_RANGE)
-            .and_then(|v| v.to_str().ok())
-            .and_then(util::total_from_content_range)
+        range_total(h)
     } else {
         probe.content_length()
     };
@@ -124,28 +381,27 @@ async fn drive(
         .as_deref()
         .and_then(util::filename_from_disposition);
 
-    // Paths other downloads have claimed. Collected before locking our own
-    // record: lock order is always `jobs` → record, never the reverse.
-    let my_id = job.rec.lock().unwrap().id;
-    let siblings: Vec<_> = inner
-        .jobs
-        .lock()
-        .unwrap()
-        .iter()
-        .filter_map(|j| {
-            let r = j.rec.lock().unwrap();
-            (r.id != my_id).then(|| r.path.clone()).flatten()
-        })
-        .collect();
-
     // ---- Reconcile with what we had (resume), pick the path.
     let settings = inner.settings.lock().unwrap().clone();
+    // Validator for `If-Range`: a changed file then answers 200, not 206.
+    let if_range = if resumable {
+        etag.as_deref()
+            .filter(|e| !e.starts_with("W/"))
+            .and_then(|v| HeaderValue::from_str(v).ok())
+    } else {
+        None
+    };
     let (path, segments_fresh) = {
+        // One download at a time chooses its name, so two of the same name
+        // can't both take it. Lock order: claim, `jobs`, then a record.
+        let _claim = inner.path_claim.lock().unwrap();
+        let my_id = job.rec.lock().unwrap().id;
+        let siblings = sibling_paths(inner, my_id);
         let mut rec = job.rec.lock().unwrap();
         let same_file = rec.total == total
             && rec.resumable
             && resumable
-            && (rec.etag.is_none() || etag.is_none() || rec.etag == etag)
+            && same_validators(&rec.etag, &etag, &rec.last_modified, &last_modified)
             && rec
                 .path
                 .as_ref()
@@ -232,8 +488,9 @@ async fn drive(
             token,
             Arc::new(file),
             final_url,
-            headers,
+            seg_headers,
             connections,
+            if_range,
         )
         .await?;
     } else {
@@ -254,7 +511,7 @@ async fn drive(
         file.sync_data().map_err(|e| e.to_string())?;
     }
 
-    std::fs::rename(&part, &path).map_err(|e| format!("renaming to {}: {e}", path.display()))?;
+    place(inner, job, &part, path)?;
     Ok(())
 }
 
@@ -285,7 +542,7 @@ impl Ctl {
     fn retire(&self) -> bool {
         let cap = self.cap.load(Ordering::Relaxed);
         self.live
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |l| {
+            .try_update(Ordering::Relaxed, Ordering::Relaxed, |l| {
                 (l > cap && l > 1).then(|| l - 1)
             })
             .is_ok()
@@ -294,6 +551,7 @@ impl Ctl {
 
 /// Segmented download. `connections` is the maximum: workers are added while
 /// aggregate throughput keeps improving, and shed when the server pushes back.
+#[allow(clippy::too_many_arguments)]
 async fn multi(
     inner: &Arc<Inner>,
     job: &Arc<Job>,
@@ -302,6 +560,7 @@ async fn multi(
     url: String,
     headers: HeaderMap,
     connections: usize,
+    if_range: Option<HeaderValue>,
 ) -> Result<(), String> {
     let (min_segment, max_retries) = {
         let s = inner.settings.lock().unwrap();
@@ -322,6 +581,7 @@ async fn multi(
             file: file.clone(),
             url: url.clone(),
             headers: headers.clone(),
+            if_range: if_range.clone(),
             token: token.clone(),
             tuning: Tuning {
                 min_segment,
@@ -354,6 +614,11 @@ async fn multi(
         tokio::select! {
             res = set.join_next() => match res {
                 None => break,
+                Some(Ok(Err(e))) if e == FILE_CHANGED => {
+                    // Bytes already written are from the old file: stop everyone.
+                    set.abort_all();
+                    return Err(e);
+                }
                 Some(Ok(Err(e))) => last_err = Some(e),
                 Some(_) => {}
             },
@@ -396,6 +661,8 @@ struct Worker {
     file: Arc<File>,
     url: String,
     headers: HeaderMap,
+    /// Sent as `If-Range` with every segment request.
+    if_range: Option<HeaderValue>,
     token: CancellationToken,
     tuning: Tuning,
     max_retries: u32,
@@ -429,11 +696,16 @@ impl Worker {
             let mut attempt = 0;
             let mut retired = false;
             let outcome = loop {
+                let before = self.job.rec.lock().unwrap().segments[idx].pos;
                 match self.fetch(idx).await {
                     Ok(()) => break Ok(()),
                     Err(SegError::Cancelled) => break Err(None),
                     Err(SegError::Fatal(e)) => break Err(Some(e)),
                     Err(SegError::Retry(e)) => {
+                        // Only failures in a row without progress count.
+                        if self.job.rec.lock().unwrap().segments[idx].pos > before {
+                            attempt = 0;
+                        }
                         attempt += 1;
                         // The server is pushing back and we are over the
                         // lowered cap: leave the segment to the others.
@@ -537,11 +809,14 @@ impl Worker {
         if pos >= end {
             return Ok(());
         }
-        let req = self
+        let mut req = self
             .client
             .get(&self.url)
             .headers(self.headers.clone())
             .header(RANGE, format!("bytes={pos}-{}", end - 1));
+        if let Some(v) = &self.if_range {
+            req = req.header(IF_RANGE, v);
+        }
         let resp = tokio::select! {
             _ = self.token.cancelled() => return Err(SegError::Cancelled),
             r = req.send() => r.map_err(|e| {
@@ -557,6 +832,9 @@ impl Worker {
         }
         if status == StatusCode::TOO_MANY_REQUESTS || status.is_server_error() {
             return Err(SegError::Retry(format!("server answered {status}")));
+        }
+        if status == StatusCode::OK && self.if_range.is_some() {
+            return Err(SegError::Fatal(FILE_CHANGED.into()));
         }
         if status != StatusCode::PARTIAL_CONTENT {
             return Err(SegError::Fatal(if status.is_success() {
@@ -760,4 +1038,184 @@ fn write_at(file: &File, mut buf: &[u8], mut offset: u64) -> std::io::Result<()>
         offset += n as u64;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::{BufRead, BufReader, Write};
+    use std::net::TcpListener;
+
+    #[test]
+    fn transient_errors() {
+        for e in [
+            "error sending request for url (http://h/): client error (Connect): tcp connect error: Connection refused",
+            "operation timed out",
+            "connection closed early",
+            "connection closed after 5 of 10 bytes",
+            "server answered 503 Service Unavailable",
+            "server answered 429 Too Many Requests",
+            "server answered 502 Bad Gateway",
+        ] {
+            assert!(is_transient(e), "{e}");
+        }
+        for e in [
+            "server answered 404 Not Found",
+            "server answered 403 Forbidden",
+            "server answered 410 Gone",
+            "server stopped honouring byte ranges",
+            "server sent the wrong range (asked for 5, got None)",
+            "write failed: No space left on device (os error 28)",
+            "/dl/x.part: Permission denied (os error 13)",
+            "error sending request for url (https://h/): client error (Connect): invalid peer certificate: UnknownIssuer",
+            "cancelled",
+        ] {
+            assert!(!is_transient(e), "{e}");
+        }
+    }
+
+    #[test]
+    fn retry_delays_are_bounded() {
+        assert_eq!(auto_retry_delay(0), None);
+        assert_eq!(auto_retry_delay(1), Some(Duration::from_secs(30)));
+        assert_eq!(auto_retry_delay(5), Some(Duration::from_secs(300)));
+        assert_eq!(auto_retry_delay(6), None);
+    }
+
+    #[test]
+    fn same_file_validators() {
+        let s = |v: &str| Some(v.to_string());
+        let none = || None;
+        assert!(same_validators(&s("\"a\""), &s("\"a\""), &none(), &none()));
+        assert!(!same_validators(&s("\"a\""), &s("\"b\""), &none(), &none()));
+        // No ETag: a different Last-Modified still means a different file.
+        assert!(!same_validators(&none(), &none(), &s("Mon"), &s("Tue")));
+        assert!(same_validators(&none(), &none(), &s("Mon"), &s("Mon")));
+        // Unknown on one side: nothing to compare.
+        assert!(same_validators(&none(), &s("\"a\""), &s("Mon"), &none()));
+    }
+
+    /// Minimal HTTP/1.1 server: one request per connection. `handler` gets the
+    /// request line and `Range` header and returns the raw response.
+    fn serve(handler: impl Fn(&str, Option<&str>) -> Vec<u8> + Send + 'static) -> String {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        std::thread::spawn(move || {
+            for conn in listener.incoming() {
+                let Ok(mut conn) = conn else { break };
+                let mut r = BufReader::new(conn.try_clone().unwrap());
+                let mut line = String::new();
+                r.read_line(&mut line).unwrap_or(0);
+                let mut range = None;
+                loop {
+                    let mut h = String::new();
+                    if r.read_line(&mut h).unwrap_or(0) == 0 || h.trim().is_empty() {
+                        break;
+                    }
+                    if let Some(v) = h.to_ascii_lowercase().strip_prefix("range:") {
+                        range = Some(v.trim().to_string());
+                    }
+                }
+                let _ = conn.write_all(&handler(line.trim(), range.as_deref()));
+            }
+        });
+        format!("http://{addr}/file.bin")
+    }
+
+    fn response(status: &str, headers: &str, body: &[u8]) -> Vec<u8> {
+        let mut out = format!(
+            "HTTP/1.1 {status}\r\n{headers}Content-Length: {}\r\nConnection: close\r\n\r\n",
+            body.len()
+        )
+        .into_bytes();
+        out.extend_from_slice(body);
+        out
+    }
+
+    /// Download `url` into a fresh dir and return the file's bytes (or the error).
+    fn fetch_all(url: &str) -> Result<Vec<u8>, String> {
+        let dir = std::env::temp_dir().join(format!(
+            "hurtle-job-{}-{}",
+            std::process::id(),
+            url.rsplit(':').next().unwrap_or("0").replace('/', "_")
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        let data = dir.join("data");
+        let out = dir.join("out");
+        let engine = crate::Engine::with_data_dir(&data).unwrap();
+        engine
+            .add(crate::AddRequest {
+                url: url.into(),
+                dir: Some(out.clone()),
+                filename: Some("file.bin".into()),
+                ..Default::default()
+            })
+            .unwrap();
+        let end = Instant::now() + Duration::from_secs(20);
+        let result = loop {
+            let d = engine.snapshot().remove(0);
+            match d.status {
+                Status::Completed => break Ok(std::fs::read(out.join("file.bin")).unwrap()),
+                Status::Failed(e) => break Err(e),
+                _ if Instant::now() > end => {
+                    break Err(format!("timeout: {:?} {:?}", d.status, d.note));
+                }
+                _ => std::thread::sleep(Duration::from_millis(50)),
+            }
+        };
+        engine.shutdown();
+        let _ = std::fs::remove_dir_all(&dir);
+        result
+    }
+
+    #[test]
+    fn unknown_total_in_206_downloads_everything() {
+        let body = b"hello, whole file".to_vec();
+        let url = serve(move |_, range| match range {
+            Some(_) => response(
+                "206 Partial Content",
+                "Content-Range: bytes 0-0/*\r\n",
+                &body[..1],
+            ),
+            None => response("200 OK", "", &body),
+        });
+        assert_eq!(fetch_all(&url).unwrap(), b"hello, whole file");
+    }
+
+    #[test]
+    fn empty_file_after_416() {
+        let url = serve(|_, range| match range {
+            Some(_) => response(
+                "416 Range Not Satisfiable",
+                "Content-Range: bytes */0\r\n",
+                b"",
+            ),
+            None => response("200 OK", "", b""),
+        });
+        assert_eq!(fetch_all(&url).unwrap(), b"");
+    }
+
+    #[test]
+    fn probe_retries_503() {
+        let hits = std::sync::atomic::AtomicUsize::new(0);
+        let url = serve(move |_, range| {
+            if hits.fetch_add(1, Ordering::Relaxed) < 2 {
+                return response("503 Service Unavailable", "Retry-After: 0\r\n", b"");
+            }
+            match range {
+                Some(r) => {
+                    let (a, b) = r.trim_start_matches("bytes=").split_once('-').unwrap();
+                    let (a, b): (usize, usize) = (a.parse().unwrap(), b.parse().unwrap());
+                    let body = b"0123456789";
+                    response(
+                        "206 Partial Content",
+                        &format!("Content-Range: bytes {a}-{b}/10\r\n"),
+                        &body[a..=b.min(9)],
+                    )
+                }
+                None => response("200 OK", "", b"0123456789"),
+            }
+        });
+        assert_eq!(fetch_all(&url).unwrap(), b"0123456789");
+    }
 }

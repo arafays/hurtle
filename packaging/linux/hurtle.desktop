@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Hurtle
+GenericName=Download Manager
+Comment=Multi-connection download accelerator
+Exec=hurtle %U
+Icon=hurtle
+Categories=Network;FileTransfer;
+StartupWMClass=hurtle
+Terminal=false

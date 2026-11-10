@@ -6,6 +6,7 @@
 // No console window behind the app on Windows (release builds).
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
+mod notify;
 mod theme;
 #[cfg_attr(not(target_os = "linux"), path = "tray_stub.rs")]
 mod tray;
@@ -93,11 +94,13 @@ fn main() -> anyhow::Result<()> {
     // With a tray icon, closing the window leaves Hurtle running there (as
     // IDM does); "Quit" in the tray menu exits.
     let has_tray = tray::start(&engine, flags.clone());
+    notify::start(&engine);
 
     gpui_kit::application()
         .with_assets(gpui_kit::assets::Assets)
         .run(move |cx| {
             gpui_kit::init(cx);
+            view::bind_keys(cx);
             // GPUI may exit the process without dropping the engine; save on quit.
             let quit_engine = engine.clone();
             cx.on_app_quit(move |_| {
@@ -108,7 +111,7 @@ fn main() -> anyhow::Result<()> {
             if has_tray {
                 cx.set_quit_mode(QuitMode::Explicit);
             }
-            open_main_window(&engine, cx);
+            open_main_window(&engine, !has_tray, cx);
             cx.activate(true);
 
             // Tray / IPC requests: raise or reopen the window, or quit.
@@ -158,7 +161,7 @@ fn main() -> anyhow::Result<()> {
                             Some(w) => {
                                 let _ = w.update(cx, |_, window, _| window.activate_window());
                             }
-                            None => open_main_window(&engine, cx),
+                            None => open_main_window(&engine, !has_tray, cx),
                         });
                     }
                 }
@@ -168,7 +171,7 @@ fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn open_main_window(engine: &Arc<Engine>, cx: &mut App) {
+fn open_main_window(engine: &Arc<Engine>, ask_before_close: bool, cx: &mut App) {
     let bounds = Bounds::centered(None, size(px(860.), px(640.)), cx);
     let options = WindowOptions {
         window_bounds: Some(WindowBounds::Windowed(bounds)),
@@ -185,6 +188,37 @@ fn open_main_window(engine: &Arc<Engine>, cx: &mut App) {
     let engine = engine.clone();
     if let Err(e) = gpui_kit::open_window(options, cx, move |window, cx| {
         theme::apply(&engine.settings().theme, Some(window), cx);
+        if ask_before_close {
+            // No tray: closing the window quits and pauses everything.
+            let engine = engine.clone();
+            window.on_window_should_close(cx, move |window, cx| {
+                let active = engine
+                    .snapshot()
+                    .iter()
+                    .filter(|d| d.status.is_active())
+                    .count();
+                if active == 0 {
+                    return true;
+                }
+                let rx = window.prompt(
+                    PromptLevel::Warning,
+                    &format!(
+                        "{active} download{} in progress",
+                        if active == 1 { "" } else { "s" }
+                    ),
+                    Some("Quitting pauses them. You can resume them next time."),
+                    &["Quit", "Keep open"],
+                    cx,
+                );
+                cx.spawn(async move |cx| {
+                    if rx.await == Ok(0) {
+                        cx.update(|cx| cx.quit());
+                    }
+                })
+                .detach();
+                false
+            });
+        }
         cx.new(|cx| view::HurtleView::new(engine, window, cx))
     }) {
         eprintln!("hurtle: could not open window: {e:#}");

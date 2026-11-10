@@ -1,9 +1,5 @@
 const api = globalThis.browser ?? globalThis.chrome;
 const KEYS = { overlay: true, enabled: true, showDialog: true, sniffMedia: true, minSizeMB: 0, skipExtensions: "", debug: false, preferredQuality: 1080 };
-const LIMITS = [
-  [0, "Unlimited"], [128, "128 KB/s"], [256, "256 KB/s"], [512, "512 KB/s"], [1024, "1 MB/s"],
-  [2048, "2 MB/s"], [5120, "5 MB/s"], [10240, "10 MB/s"], [20480, "20 MB/s"], [51200, "50 MB/s"],
-];
 const $ = (id) => document.getElementById(id);
 document.head.append(Object.assign(document.createElement("style"), { textContent: HurtleUI.CSS }));
 
@@ -19,10 +15,17 @@ async function loadPrefs() {
     if (el.type === "checkbox") el.checked = s[k];
     else el.value = s[k];
     el.addEventListener("change", () => {
+      if (k === "enabled") syncDependents();
       const v = el.type === "checkbox" ? el.checked : el.type === "number" || el.tagName === "SELECT" ? Number(el.value) || 0 : el.value;
       api.storage.local.set({ [k]: v });
     });
   }
+  syncDependents();
+}
+
+/** These only matter while Hurtle catches browser downloads. */
+function syncDependents() {
+  for (const id of ["showDialog", "minSizeMB", "skipExtensions"]) $(id).disabled = !$("enabled").checked;
 }
 
 /** Past hand-offs, newest first. The tab only shows when there are some. */
@@ -167,16 +170,26 @@ async function loadMedia() {
   }
 }
 
+/** Hurtle isn't installed (or isn't registered with this browser). */
+function showSetup() {
+  $("setup").hidden = false;
+  $("setupGet").href = HurtleFolders.INSTALL_URL;
+  $("open").textContent = "Get the app";
+  $("open").onclick = () => api.tabs.create({ url: HurtleFolders.INSTALL_URL }).then(() => window.close());
+}
+
 async function loadApp() {
   const ping = await api.runtime.sendMessage({ type: "ping" });
   const pill = $("host");
   if (!ping?.ok) {
     pill.textContent = "host not installed";
     pill.className = "pill bad";
-    showStatus(false, "Hurtle isn't set up for this browser yet: start the Hurtle app once (it registers itself), or run hurtle-host --register. Then restart the browser.");
+    showSetup();
   } else {
+    $("setup").hidden = true;
     pill.textContent = ping.error ? "app not running" : `connected v${ping.version}`;
-    pill.className = "pill ok";
+    pill.className = ping.error ? "pill" : "pill ok";
+    pill.title = ping.error ? "Hurtle starts with your next download" : "";
   }
 
   // The host reads (and changes) the settings itself when the app is closed.
@@ -186,11 +199,17 @@ async function loadApp() {
   $("appNote").hidden = !!s;
   const conns = $("appConnections");
   const limit = $("appSpeedLimit");
-  for (const n of [1, 2, 4, 6, 8, 12, 16, 24, 32]) conns.add(new Option(n, n, false, n === (s?.connections ?? 8)));
+  for (const n of HurtleFolders.CONNECTIONS) conns.add(new Option(n, n, false, n === (s?.connections ?? 8)));
   const kb = Math.round((s?.speed_limit ?? 0) / 1024);
-  for (const [v, label] of LIMITS) limit.add(new Option(label, v, false, v === kb));
-  if (kb && !LIMITS.some(([v]) => v === kb)) limit.add(new Option(`${kb} KB/s`, kb, true, true));
-  conns.disabled = limit.disabled = !s;
+  for (const [v, label] of HurtleFolders.LIMITS) limit.add(new Option(label, v, false, v === kb));
+  if (kb && !HurtleFolders.LIMITS.some(([v]) => v === kb)) limit.add(new Option(`${kb} KB/s`, kb, true, true));
+  const retry = $("appAutoRetry");
+  const notify = $("appNotify");
+  retry.checked = s?.auto_retry ?? true;
+  notify.checked = s?.notify ?? true;
+  conns.disabled = limit.disabled = retry.disabled = notify.disabled = !s;
+  retry.onchange = () => api.runtime.sendMessage({ type: "app-settings", autoRetry: retry.checked });
+  notify.onchange = () => api.runtime.sendMessage({ type: "app-settings", notify: notify.checked });
   conns.onchange = () => api.runtime.sendMessage({ type: "app-settings", connections: Number(conns.value) });
   limit.onchange = () => api.runtime.sendMessage({ type: "app-settings", speedLimit: Number(limit.value) * 1024 });
 }
@@ -261,6 +280,7 @@ async function checkAccess() {
 }
 
 $("open").addEventListener("click", async () => {
+  if (!$("setup").hidden) return;
   const r = await api.runtime.sendMessage({ type: "show" });
   if (r?.ok) window.close();
   else showStatus(false, r?.error || "Could not reach Hurtle");

@@ -31,7 +31,7 @@ jobs:
     outputs:
       version: ${{ steps.v.outputs.version }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - id: v
         name: Tag matches Cargo.toml version
         run: |
@@ -39,9 +39,18 @@ jobs:
           if [[ "$GITHUB_REF" == refs/tags/v* ]]; then tag=$GITHUB_REF_NAME; fi
           echo "version=$(scripts/check-version.sh "$tag")" >> "$GITHUB_OUTPUT"
 
+  # Tests, clippy, cargo-deny and the extension checks must pass (CI is reusable)
+  # before anything is built or published.
+  verify:
+    name: CI
+    needs: prepare
+    uses: ./.github/workflows/ci.yml
+    with:
+      skip-e2e: true
+
   build:
     name: ${{ matrix.target }}
-    needs: prepare
+    needs: [prepare, verify]
     strategy:
       fail-fast: false
       matrix:
@@ -58,15 +67,15 @@ jobs:
       run:
         shell: bash
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Linux build dependencies (GPUI)
         if: runner.os == 'Linux'
         run: sudo scripts/ci-linux-deps.sh
-      - uses: jdx/mise-action@v4
+      - uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b # v5.2.7
         with:
           install_args: rust
       - run: rustup target add ${{ matrix.target }}
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           shared-key: release-${{ matrix.target }}
           # Tags only restore. A manual dry run from main refreshes the cache.
@@ -74,7 +83,27 @@ jobs:
           cache-on-failure: true
       - run: cargo build --release --locked --target ${{ matrix.target }} -p hurtle-app -p hurtle-host -p hurtle-cli
       - run: scripts/package.sh ${{ matrix.target }}
-      - uses: actions/upload-artifact@v7
+      - name: Debian package
+        if: runner.os == 'Linux'
+        run: scripts/package-deb.sh ${{ matrix.target }}
+      # Inno Setup 6 is on the hosted Windows images; install a pinned one if not.
+      - name: Windows installer
+        if: runner.os == 'Windows'
+        env:
+          MSYS2_ARG_CONV_EXCL: "*" # keep Git Bash from rewriting iscc's /D switches
+        run: |
+          iscc="/c/Program Files (x86)/Inno Setup 6/ISCC.exe"
+          if [[ ! -x $iscc ]]; then
+            choco install innosetup --version 6.7.1 -y --no-progress
+          fi
+          "$iscc" "/DVersion=$(scripts/check-version.sh)" \
+            "/DSrcDir=$(cygpath -w "$PWD/target/${{ matrix.target }}/release")" \
+            "/DOutDir=$(cygpath -w "$PWD/dist")" packaging/windows/hurtle.iss
+          ls -l dist
+      - name: macOS disk image
+        if: runner.os == 'macOS'
+        run: scripts/package-dmg.sh ${{ matrix.target }}
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: hurtle-${{ matrix.target }}
           path: dist/*
@@ -83,17 +112,17 @@ jobs:
 
   extension:
     name: Browser extension
-    needs: prepare
+    needs: [prepare, verify]
     runs-on: ubuntu-22.04
     timeout-minutes: 20
     env:
       MISE_DISABLE_TOOLS: rust # `mise run` would otherwise install Rust too
     steps:
-      - uses: actions/checkout@v7
-      - uses: jdx/mise-action@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b # v5.2.7
         with:
           install_args: node aube
-      - uses: actions/cache@v6
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.local/share/aube/store
           key: aube-store-${{ runner.os }}-${{ hashFiles('extension/aube-lock.yaml') }}
@@ -114,7 +143,7 @@ jobs:
         run: |
           mise run ext:sign
           for f in extension/dist/signed/*.xpi; do mv "$f" "dist/hurtle-firefox-$VERSION.xpi"; done
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: hurtle-extension
           path: dist/*
@@ -123,7 +152,7 @@ jobs:
 
   publish:
     name: Checksums + release
-    needs: [build, extension]
+    needs: [prepare, build, extension]
     runs-on: ubuntu-22.04
     timeout-minutes: 15
     permissions:
@@ -131,8 +160,8 @@ jobs:
       id-token: write # build provenance
       attestations: write
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/download-artifact@v8
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           path: dist
           merge-multiple: true
@@ -141,22 +170,45 @@ jobs:
         run: |
           sha256sum -- * > SHA256SUMS.txt
           cat SHA256SUMS.txt
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release-files
           path: dist/*
           retention-days: 14
+      # Scoop, winget and Homebrew cask manifests with this release's hashes.
+      # Kept out of dist/ (and so out of the release): submit them by hand or
+      # from a job with the right credentials.
+      - name: Render package-manager manifests
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: scripts/update-manifests.sh "$VERSION" dist/SHA256SUMS.txt manifests
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: package-manifests
+          path: manifests
+          retention-days: 30
+      # The notes point Firefox users at the signed xpi; without AMO secrets only
+      # the unsigned one ships, so say that instead of linking a missing file.
+      - name: Release notes
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          cp .github/release-notes.md "$RUNNER_TEMP/notes.md"
+          if [[ ! -f dist/hurtle-firefox-$VERSION.xpi ]]; then
+            echo "::warning::no signed Firefox xpi (AMO secrets unset?); notes point at the unsigned one"
+            sed -i "/^- Firefox, Zen, LibreWolf:/c\\- Firefox, Zen, LibreWolf: this release has no Mozilla-signed add-on. Load \`hurtle-firefox-$VERSION-unsigned.xpi\` as a temporary add-on (\`about:debugging\` → *Load Temporary Add-on*), or use Developer/Nightly with signing disabled." "$RUNNER_TEMP/notes.md"
+          fi
       - name: Attest build provenance
         if: startsWith(github.ref, 'refs/tags/v')
-        uses: actions/attest-build-provenance@v4
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-path: dist/*
       - name: Publish GitHub release
         if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v3
+        uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # v3.0.4
         with:
           files: dist/*
-          body_path: .github/release-notes.md
+          body_path: ${{ runner.temp }}/notes.md
           generate_release_notes: true
           prerelease: ${{ contains(github.ref_name, '-') }}
           fail_on_unmatched_files: true
@@ -177,10 +229,10 @@ jobs:
       VERSION: ${{ needs.prepare.outputs.version }}
       GH_TOKEN: ${{ github.token }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: main
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: hurtle-extension
           path: ext

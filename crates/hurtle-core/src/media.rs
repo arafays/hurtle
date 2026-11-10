@@ -175,24 +175,66 @@ pub fn is_stream_url(url: &str) -> bool {
     path.ends_with(".m3u8") || path.ends_with(".mpd")
 }
 
-/// `--add-header` arguments. Extractor sites pick their own client
+/// The headers yt-dlp should send. Extractor sites pick their own client
 /// User-Agent (overriding it breaks extraction), so they only get cookies
 /// and the referrer; raw manifests on a CDN often need all of them.
-fn header_args(url: &str, headers: &[(String, String)]) -> Vec<String> {
+fn header_pairs<'a>(
+    url: &str,
+    headers: &'a [(String, String)],
+) -> impl Iterator<Item = &'a (String, String)> {
     let raw = is_stream_url(url);
-    let mut args = vec![];
-    for (k, v) in headers {
+    headers.iter().filter(move |(k, v)| {
         let keep = if raw {
             !k.eq_ignore_ascii_case("accept-encoding")
         } else {
             k.eq_ignore_ascii_case("cookie") || k.eq_ignore_ascii_case("referer")
         };
-        if keep {
-            args.push("--add-header".into());
-            args.push(format!("{k}:{v}"));
+        keep && !k.contains(['\r', '\n', '\0']) && !v.contains(['\r', '\n', '\0'])
+    })
+}
+
+/// yt-dlp config text with one `--add-header` per header (shlex quoting).
+fn header_config(url: &str, headers: &[(String, String)]) -> String {
+    header_pairs(url, headers)
+        .map(|(k, v)| {
+            let h = format!("{k}:{v}").replace('\'', "'\\''");
+            format!("--add-header '{h}'\n")
+        })
+        .collect()
+}
+
+/// A 0600 yt-dlp config file holding the request headers. Cookies must not go
+/// on the command line, where other local users can read them. Deleted on drop.
+struct HeaderFile(Option<PathBuf>);
+
+impl Drop for HeaderFile {
+    fn drop(&mut self) {
+        if let Some(p) = &self.0 {
+            let _ = std::fs::remove_file(p);
         }
     }
-    args
+}
+
+/// Arguments that make yt-dlp read the headers from a private file at `path`.
+fn header_args(
+    url: &str,
+    headers: &[(String, String)],
+    path: &Path,
+) -> Result<(Vec<String>, HeaderFile), String> {
+    let text = header_config(url, headers);
+    if text.is_empty() {
+        return Ok((vec![], HeaderFile(None)));
+    }
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    }
+    let guard = HeaderFile(Some(path.to_path_buf()));
+    crate::util::write_private(path, text.as_bytes())
+        .map_err(|e| format!("writing {}: {e}", path.display()))?;
+    Ok((
+        vec!["--config-locations".into(), path.to_string_lossy().into()],
+        guard,
+    ))
 }
 
 fn base_args() -> Vec<String> {
@@ -265,10 +307,20 @@ pub fn probe(url: &str, headers: &[(String, String)]) -> Result<MediaInfo, Probe
     if needs_js(url) {
         let _ = tools::ensure(Tool::Deno, &|_, _, _| {});
     }
+    static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let hfile = crate::data_dir().join("tmp").join(format!(
+        "headers-{}-{}.conf",
+        std::process::id(),
+        SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    ));
+    if let Some(dir) = hfile.parent() {
+        let _ = crate::util::create_private_dir(dir);
+    }
+    let (hargs, _hguard) = header_args(url, headers, &hfile)?;
     let mut cmd = std::process::Command::new(&bin);
     prepare(&mut cmd, &bin);
     cmd.args(base_args())
-        .args(header_args(url, headers))
+        .args(hargs)
         // A list page (channel, playlist, creator) would otherwise have every
         // video in it read, which takes minutes: list it flat and say so.
         .args(["-J", "--flat-playlist", "--", url])
@@ -614,19 +666,46 @@ fn output_template(filename: &str) -> String {
     if filename.is_empty() {
         return "%(title).180B.%(ext)s".into();
     }
-    const EXTS: [&str; 16] = [
-        ".mp4", ".mkv", ".webm", ".mov", ".m4a", ".mp3", ".opus", ".ogg", ".ts", ".flv", ".m3u8",
-        ".mpd", ".m4v", ".avi", ".3gp", ".flac",
-    ];
-    // Strip repeatedly: "clip.m3u8.mp4" → "clip".
+    format!("{}.%(ext)s", split_media_ext(filename).0.replace('%', "%%"))
+}
+
+const MEDIA_EXTS: [&str; 16] = [
+    ".mp4", ".mkv", ".webm", ".mov", ".m4a", ".mp3", ".opus", ".ogg", ".ts", ".flv", ".m3u8",
+    ".mpd", ".m4v", ".avi", ".3gp", ".flac",
+];
+
+/// "clip.m3u8.mp4" → ("clip", ".m3u8.mp4"): the name yt-dlp adds its own
+/// extension to, and the extensions stripped off it.
+fn split_media_ext(filename: &str) -> (&str, &str) {
     let mut stem = filename;
-    while let Some(e) = EXTS
+    while let Some(e) = MEDIA_EXTS
         .iter()
         .find(|e| stem.len() > e.len() && stem.to_ascii_lowercase().ends_with(*e))
     {
         stem = &stem[..stem.len() - e.len()];
     }
-    format!("{}.%(ext)s", stem.replace('%', "%%"))
+    (stem, &filename[stem.len()..])
+}
+
+/// `filename`, or the same with "(1)", "(2)"… after the stem, until
+/// `taken(stem)` is false.
+fn unique_name(filename: &str, taken: impl Fn(&str) -> bool) -> String {
+    let (stem, ext) = split_media_ext(filename);
+    if !taken(stem) {
+        return filename.to_string();
+    }
+    (1..)
+        .map(|n| format!("{stem} ({n})"))
+        .find(|s| !taken(s))
+        .map(|s| format!("{s}{ext}"))
+        .unwrap()
+}
+
+/// Is there a file `dir/<stem>.<media extension>` already?
+fn stem_on_disk(dir: &Path, stem: &str) -> bool {
+    MEDIA_EXTS
+        .iter()
+        .any(|e| dir.join(format!("{stem}{e}")).exists())
 }
 
 enum Line {
@@ -699,11 +778,34 @@ pub(crate) async fn drive(
 ) -> Result<(), String> {
     let settings = inner.settings.lock().unwrap().clone();
     let (id, url, headers, filename, dir, conns, format, lang, container, limit) = {
+        // Name choice and claim happen under one lock (claim, `jobs`, record).
+        let _claim = inner.path_claim.lock().unwrap();
+        let my_id = job.rec.lock().unwrap().id;
+        let others: Vec<(PathBuf, String)> = inner
+            .jobs
+            .lock()
+            .unwrap()
+            .iter()
+            .filter_map(|j| {
+                let r = j.rec.lock().unwrap();
+                (r.id != my_id && r.status != Status::Completed)
+                    .then(|| (r.dir.clone(), split_media_ext(&r.filename).0.to_string()))
+            })
+            .collect();
         let mut rec = job.rec.lock().unwrap();
         if rec.auto_dir && rec.path.is_none() {
             // Video or audio folder, by what this download turns into.
             let cat = category(rec.format.as_deref(), rec.container.as_deref());
             rec.dir = settings.dir_for(Some(cat));
+        }
+        // First start with a known name: don't reuse a taken one (yt-dlp
+        // would call it "already downloaded"). The new name is kept, so a
+        // resume finds its partial files again.
+        if rec.path.is_none() && !rec.filename.is_empty() {
+            let dir = rec.dir.clone();
+            rec.filename = unique_name(&rec.filename, |stem| {
+                others.iter().any(|(d, s)| *d == dir && s == stem) || stem_on_disk(&dir, stem)
+            });
         }
         rec.status = Status::Probing;
         rec.note = Some("Reading video info".into());
@@ -730,7 +832,9 @@ pub(crate) async fn drive(
     std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
 
     let mut args = base_args();
-    args.extend(header_args(&url, &headers));
+    // Removed when this run ends, whichever way (done, paused, killed).
+    let (hargs, _hguard) = header_args(&url, &headers, &tmp.join("headers.conf"))?;
+    args.extend(hargs);
     args.extend(
         [
             "--newline",
@@ -898,6 +1002,9 @@ pub(crate) async fn drive(
             rec.active_connections = 0;
         } else if let Some(p) = text.strip_prefix("HURTLEFILE ") {
             final_path = Some(PathBuf::from(p));
+        } else if text.contains("has already been downloaded") {
+            // Same title as an earlier download (no name was chosen up front).
+            crate::log::log("app", format!("#{id} {}", text.trim()));
         } else if !text.trim().is_empty() && !text.starts_with('[') {
             errors.push(text);
             if errors.len() > 40 {
@@ -1026,6 +1133,10 @@ mod tests {
             "Clip - YouTube.%(ext)s"
         );
         assert_eq!(output_template(".mp4"), ".mp4.%(ext)s");
+        assert_eq!(split_media_ext("clip.m3u8.mp4"), ("clip", ".m3u8.mp4"));
+        let taken = |s: &str| s == "clip" || s == "clip (1)";
+        assert_eq!(unique_name("clip.mp4", taken), "clip (2).mp4");
+        assert_eq!(unique_name("other.mp4", taken), "other.mp4");
     }
 
     #[test]
@@ -1073,10 +1184,35 @@ mod tests {
             ("Cookie".to_string(), "a=1".to_string()),
         ];
         assert_eq!(
-            header_args("https://youtube.com/watch?v=x", &h),
-            ["--add-header", "Cookie:a=1"]
+            header_config("https://youtube.com/watch?v=x", &h),
+            "--add-header 'Cookie:a=1'\n"
         );
-        assert_eq!(header_args("https://cdn/a.m3u8", &h).len(), 4);
+        assert_eq!(header_config("https://cdn/a.m3u8", &h).lines().count(), 2);
+        let q = vec![("Cookie".to_string(), "a='b' #c".to_string())];
+        assert_eq!(
+            header_config("https://x/y", &q),
+            "--add-header 'Cookie:a='\\''b'\\'' #c'\n"
+        );
+        // No cookie value ever lands in argv.
+        let path = std::env::temp_dir()
+            .join(format!("hurtle-hdr-{}", std::process::id()))
+            .join("h.conf");
+        let (args, guard) = header_args("https://x/y", &q, &path).unwrap();
+        assert!(args.iter().all(|a| !a.contains("a=")));
+        assert!(path.exists());
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(path.metadata().unwrap().permissions().mode() & 0o777, 0o600);
+        }
+        drop(guard);
+        assert!(!path.exists());
+        let _ = std::fs::remove_dir(path.parent().unwrap());
+        assert!(is_audio_type("mp3") && !is_audio_type("mp4"));
+        let js = include_str!("../../../extension/src/folders.js");
+        for t in ["mp3", "m4a", "opus", "flac", "wav"] {
+            assert!(js.contains(&format!("\"{t}\"")), "{t}");
+        }
     }
 
     #[test]

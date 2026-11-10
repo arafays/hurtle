@@ -8,6 +8,27 @@ An IDM-style download accelerator for Linux, Windows and macOS. It ships as a GP
 
 ![Hurtle with five downloads: segmented progress bars over 6 and 8 connections, a finished HLS video and a failed download](docs/assets/app-hero.webp)
 
+## Install
+
+| System | One line |
+| --- | --- |
+| Linux, macOS | `curl -fsSL https://arafays.github.io/hurtle/install.sh \| sh` |
+| Windows (PowerShell) | `irm https://arafays.github.io/hurtle/install.ps1 \| iex` |
+
+Both scripts install for the current user (no sudo or admin rights), check the download against the release's `SHA256SUMS.txt`, and register the browser host. Linux goes to `~/.local`, macOS to `/Applications`, or `~/Applications` if that is not writable (override with `HURTLE_APPDIR`). To remove Hurtle on Linux and macOS, pass `--uninstall` (`… \| sh -s -- --uninstall`). On Windows, `iex` cannot take a parameter, so run `& ([scriptblock]::Create((irm https://arafays.github.io/hurtle/install.ps1))) -Uninstall`. Read the script first if you like: [install.sh](docs/install.sh), [install.ps1](docs/install.ps1).
+
+Or take a file from the [latest release](https://github.com/arafays/hurtle/releases/latest):
+
+- **Windows:** `hurtle-<ver>-windows-x86_64-setup.exe` (per-user installer), or the portable `.zip`.
+- **macOS:** `hurtle-<ver>-macos-aarch64.dmg` or `…-x86_64.dmg`. Drag `Hurtle.app` to Applications. A Homebrew cask file is in [`packaging/macos`](packaging/macos); it is not in a tap yet.
+- **Debian / Ubuntu:** `sudo apt install ./hurtle_<ver>_amd64.deb` (or `arm64`).
+- **Arch:** the `hurtle-bin` PKGBUILD is in [`packaging/linux/aur`](packaging/linux/aur). It is not on the AUR yet; build it with `makepkg -si`.
+- **Other Linux:** extract `hurtle-<ver>-linux-x86_64.tar.gz` (or `aarch64`) and run `./install.sh`, or run `./hurtle` directly.
+
+The `.deb`, `setup.exe`, `.dmg` and the tarball's `install.sh` ship from 0.3.0 on. Windows and macOS builds are unsigned: SmartScreen may warn (More info, then Run anyway), and on macOS, if the app is blocked or "damaged", run `xattr -dr com.apple.quarantine /Applications/Hurtle.app`.
+
+Then add the extension: unzip `hurtle-chrome-<ver>.zip` and use **Load unpacked** at `chrome://extensions` (keep the folder; it is not on the Chrome Web Store), or open `hurtle-firefox-<ver>.xpi` in Firefox 142 or newer, Zen or LibreWolf.
+
 ## Why it's faster
 
 Many servers cap the speed of each connection. Hurtle downloads a file as byte-range **segments**, each over its own HTTP/1.1 connection, and uses **dynamic segmentation**, the same method IDM uses. When a connection finishes, it takes the largest unfinished segment, splits it in half and starts at the midpoint. Every connection stays busy until the end, so there is no slow straggler at the finish.
@@ -95,9 +116,10 @@ Push a tag that matches the version in `Cargo.toml`, e.g. `git tag v0.1.0 && git
 
 | File | Contents |
 | --- | --- |
-| `hurtle-<ver>-windows-x86_64.zip` | `hurtle.exe`, `hurtle-host.exe`, `hurtle-cli.exe` |
-| `hurtle-<ver>-macos-aarch64.zip`, `…-macos-x86_64.zip` | `Hurtle.app` (ad-hoc signed, not notarized) |
-| `hurtle-<ver>-linux-x86_64.tar.gz` | `hurtle`, `hurtle-host`, `hurtle-cli` |
+| `hurtle-<ver>-windows-x86_64.zip`, `…-windows-x86_64-setup.exe` | `hurtle.exe`, `hurtle-host.exe`, `hurtle-cli.exe` (portable zip), and a per-user installer |
+| `hurtle-<ver>-macos-aarch64.zip`, `…-macos-x86_64.zip`, and `.dmg` of each | `Hurtle.app` (ad-hoc signed, not notarized) |
+| `hurtle-<ver>-linux-x86_64.tar.gz`, `…-linux-aarch64.tar.gz` | `hurtle`, `hurtle-host`, `hurtle-cli`, `hurtle.desktop`, `install.sh` |
+| `hurtle_<ver>_amd64.deb`, `hurtle_<ver>_arm64.deb` | Debian / Ubuntu package |
 | `hurtle-chrome-<ver>.zip`, `hurtle-firefox-<ver>.zip` | the extension, plus `hurtle-firefox-<ver>-unsigned.xpi` |
 | `hurtle-firefox-<ver>.xpi` | the Firefox add-on, signed by AMO as unlisted (needs the `AMO_JWT_ISSUER`/`AMO_JWT_SECRET` secrets) |
 

@@ -43,5 +43,13 @@ globalThis.HurtleFolders ??= (() => {
     return (path || "").replace(/^\/home\/[^/]+(?=\/|$)/, "~").replace(/^\/Users\/[^/]+(?=\/|$)/, "~");
   }
 
-  return { CATEGORIES, category, mediaCategory, dirFor, short };
+  /** Per-file speed limits (KB/s) and connection counts, shared by the popup and the dialog. */
+  const LIMITS = [
+    [0, "Unlimited"], [128, "128 KB/s"], [256, "256 KB/s"], [512, "512 KB/s"], [1024, "1 MB/s"],
+    [2048, "2 MB/s"], [5120, "5 MB/s"], [10240, "10 MB/s"], [20480, "20 MB/s"], [51200, "50 MB/s"],
+  ];
+  const CONNECTIONS = [1, 2, 4, 6, 8, 12, 16, 24, 32];
+  const INSTALL_URL = "https://arafays.github.io/hurtle/#install";
+
+  return { CATEGORIES, category, mediaCategory, dirFor, short, LIMITS, CONNECTIONS, INSTALL_URL };
 })();

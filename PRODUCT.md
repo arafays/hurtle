@@ -27,6 +27,7 @@ Free, open-source and cross-platform, with IDM's dynamic segmentation (idle conn
 - Segmented downloads, per-file and global speed limits, pause/resume across restarts, per-type download folders.
 - Browser extension for Chrome-family browsers and Firefox: download interception, media sniffing, video overlay button, quality/audio-language/container choice.
 - Desktop app with themes (system theme detection on Linux, plus presets) and a Linux tray icon.
+- Install paths: one-line scripts for Linux/macOS (`install.sh`) and Windows (`install.ps1`), plus setup.exe, .dmg, .deb and tarball. The Arch PKGBUILD and Homebrew cask exist as files only, not yet in the AUR or a tap: say so, never imply `brew install` or an AUR package works.
 - macOS builds are ad-hoc signed and not notarized. The Firefox add-on is unsigned unless AMO keys are set. No tray on Windows/macOS yet.
 
 ## Evidence on Hand
@@ -39,4 +40,4 @@ Free, open-source and cross-platform, with IDM's dynamic segmentation (idle conn
 
 - Prove speed with measurement, not adjectives.
 - The browser flow should feel native: one dialog, sensible defaults, no command line.
-- Honest about platform gaps (notarization, tray, signing).
+- Honest about platform gaps (notarization, tray, signing) and about what is published: only name an install channel that really exists.

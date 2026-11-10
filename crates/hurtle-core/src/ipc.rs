@@ -54,6 +54,10 @@ pub struct SettingsChange {
     pub connections: Option<usize>,
     /// Bytes per second, 0 = unlimited.
     pub speed_limit: Option<u64>,
+    /// Retry failed downloads automatically.
+    pub auto_retry: Option<bool>,
+    /// Desktop notifications.
+    pub notify: Option<bool>,
     /// The main download folder (`~` allowed).
     pub download_dir: Option<String>,
     /// Folders per file type; an empty path goes back to the main folder.
@@ -64,6 +68,8 @@ impl SettingsChange {
     pub fn is_empty(&self) -> bool {
         self.connections.is_none()
             && self.speed_limit.is_none()
+            && self.auto_retry.is_none()
+            && self.notify.is_none()
             && self.download_dir.is_none()
             && self.type_dirs.is_none()
     }
@@ -84,6 +90,9 @@ pub struct IpcReply {
     pub media: Option<crate::media::MediaInfo>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub log: Option<String>,
+    /// `log`: the absolute path of hurtle.log.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub folder: Option<String>,
     /// `add` gave an existing paused or failed download the new link.
@@ -102,7 +111,11 @@ impl IpcReply {
     /// Answer a [`IpcRequest::Probe`] in-process (the native host does this
     /// itself, so filling the dialog doesn't start the app).
     pub fn probe(req: &AddRequest) -> Self {
-        match crate::media::probe(&req.url, &req.header_list()) {
+        // Only web links, as for `add`; checked before any tool is fetched.
+        if let Err(e) = crate::util::require_http(&req.url) {
+            return Self::err(e);
+        }
+        match crate::media::probe(req.url.trim(), &req.header_list()) {
             Ok(info) => Self {
                 media: Some(info),
                 ..Self::ok(None)
@@ -116,12 +129,17 @@ impl IpcReply {
 
     /// Answer a [`IpcRequest::Log`]: append the extension's lines, return the tail.
     pub fn log(append: &[String], tail: Option<usize>) -> Self {
-        for line in append {
-            crate::log::log("ext", line);
+        for line in append.iter().take(100) {
+            let mut end = line.len().min(4096);
+            while !line.is_char_boundary(end) {
+                end -= 1;
+            }
+            crate::log::log("ext", &line[..end]);
         }
         Self {
             // Native-messaging replies are capped at 1 MB.
             log: tail.map(|n| crate::log::tail(n.min(512 * 1024))),
+            path: tail.map(|_| crate::log::path().display().to_string()),
             ..Self::ok(None)
         }
     }
@@ -150,8 +168,57 @@ pub fn socket_path() -> PathBuf {
     if let Some(dir) = std::env::var_os("XDG_RUNTIME_DIR") {
         return PathBuf::from(dir).join("hurtle.sock");
     }
-    let user = std::env::var("USER").unwrap_or_else(|_| "user".into());
-    std::env::temp_dir().join(format!("hurtle-{user}.sock"))
+    #[cfg(unix)]
+    {
+        fallback_dir().join("hurtle.sock")
+    }
+    #[cfg(not(unix))]
+    {
+        let user = std::env::var("USER").unwrap_or_else(|_| "user".into());
+        std::env::temp_dir().join(format!("hurtle-{user}.sock"))
+    }
+}
+
+/// Without `XDG_RUNTIME_DIR` the socket lives in a per-user directory
+/// under the temp dir, not directly in a shared, world-writable `/tmp`.
+#[cfg(unix)]
+fn fallback_dir() -> PathBuf {
+    // SAFETY: getuid has no preconditions.
+    std::env::temp_dir().join(format!("hurtle-{}", unsafe { libc::getuid() }))
+}
+
+/// Make sure the socket's directory can't be squatted by another user.
+/// Only the fallback directory needs it (`HURTLE_SOCKET` and the runtime dir
+/// are the caller's own business). The server creates it (`create`); clients
+/// only check, so they never talk to a socket someone else planted.
+#[cfg(unix)]
+pub(crate) fn guard_socket_dir(create: bool) -> io::Result<()> {
+    use std::os::unix::fs::{DirBuilderExt, MetadataExt};
+    if std::env::var_os("HURTLE_SOCKET").is_some() || std::env::var_os("XDG_RUNTIME_DIR").is_some()
+    {
+        return Ok(());
+    }
+    let dir = fallback_dir();
+    if create {
+        match std::fs::DirBuilder::new().mode(0o700).create(&dir) {
+            Ok(()) => {}
+            Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {}
+            Err(e) => return Err(e),
+        }
+    }
+    let meta = std::fs::symlink_metadata(&dir)?;
+    // SAFETY: getuid has no preconditions.
+    let uid = unsafe { libc::getuid() };
+    if !meta.is_dir() || meta.uid() != uid || meta.mode() & 0o077 != 0 {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            format!(
+                "{} is not a private folder owned by you; remove it",
+                dir.display()
+            ),
+        ));
+    }
+    Ok(())
 }
 
 /// `\\.\pipe\hurtle-<user>`, or `HURTLE_SOCKET` (a bare name or a full pipe path).
@@ -196,6 +263,7 @@ fn exchange(mut stream: impl Read + Write, req: &IpcRequest) -> io::Result<IpcRe
 #[cfg(unix)]
 pub fn send(req: &IpcRequest) -> io::Result<IpcReply> {
     use std::os::unix::net::UnixStream;
+    guard_socket_dir(false)?;
     let stream = UnixStream::connect(socket_path())?;
     stream.set_read_timeout(Some(reply_timeout(req)))?;
     stream.set_write_timeout(Some(Duration::from_secs(5)))?;

@@ -1,5 +1,6 @@
 const api = globalThis.browser ?? globalThis.chrome;
 const $ = (id) => document.getElementById(id);
+let hostGone = false;
 const key = decodeURIComponent(location.hash.slice(1));
 
 /** Into the extension's debug log (popup → "Debug log"). */
@@ -9,10 +10,6 @@ function report(event, data, level = "info") {
 addEventListener("error", (e) => report("script error", { message: e.message, at: `${e.filename}:${e.lineno}` }, "error"));
 addEventListener("unhandledrejection", (e) => report("unhandled rejection", { reason: String(e.reason?.message || e.reason) }, "error"));
 
-const LIMITS = [
-  [0, "Unlimited"], [128, "128 KB/s"], [256, "256 KB/s"], [512, "512 KB/s"], [1024, "1 MB/s"],
-  [2048, "2 MB/s"], [5120, "5 MB/s"], [10240, "10 MB/s"], [20480, "20 MB/s"],
-];
 
 function fmtSize(n) {
   if (!n) return "unknown";
@@ -84,26 +81,49 @@ async function init() {
   if (p.thumb) showThumb(p.thumb);
   isMedia = !!p.media;
   loadFolders();
+  // Defaults come from the Hurtle app's settings when it's reachable.
+  const r = await api.runtime.sendMessage({ type: "app-settings" }).catch(() => null);
+  if (!r?.ok) hostMissing();
   if (p.media) loadQualities(p);
   else if (/^(video|audio)\//.test(p.mime || "") || /\.(mp4|m4v|webm|mkv|mov|mp3|m4a|ogg|opus)(?:$|[?#])/i.test(p.url)) preview(p);
 
-  // Defaults come from the Hurtle app's settings when it's reachable.
-  const r = await api.runtime.sendMessage({ type: "app-settings" }).catch(() => null);
   const def = r?.settings?.connections || 8;
   $("host").textContent = r?.ok ? (r.settings ? "Hurtle ready" : "Hurtle will start") : "host missing";
   $("host").className = "pill " + (r?.ok ? "ok" : "bad");
-  for (const n of [1, 2, 4, 6, 8, 12, 16, 24, 32]) {
+  for (const n of HurtleFolders.CONNECTIONS) {
     const o = new Option(`${n}`, n, false, n === def);
     $("connections").add(o);
   }
   if (![...$("connections").options].some((o) => o.selected)) $("connections").add(new Option(def, def, true, true));
-  for (const [kb, label] of LIMITS) $("speedLimit").add(new Option(label, kb, false, kb === 0));
+  const globalKb = Math.round((r?.settings?.speed_limit || 0) / 1024);
+  for (const [kb, label] of HurtleFolders.LIMITS) {
+    const text = kb === 0 ? (globalKb ? `No per-file limit (global ${globalKb} KB/s applies)` : "Unlimited") : label;
+    $("speedLimit").add(new Option(text, kb, false, kb === 0));
+  }
 
   const f = $("filename");
   f.focus();
   // Select the name without the extension, like a file manager rename.
   const dot = f.value.lastIndexOf(".");
   f.setSelectionRange(0, dot > 0 ? dot : f.value.length);
+  // With no host the primary action is "Use browser", which hostMissing() focused.
+  if (hostGone && !$("browser").hidden) $("browser").focus();
+}
+
+/** No native host: Start can't work, so steer to the browser or the install page. */
+function hostMissing() {
+  hostGone = true;
+  $("error").replaceChildren(
+    "Hurtle isn't installed or the native host is missing. ",
+    Object.assign(document.createElement("a"), { href: HurtleFolders.INSTALL_URL, target: "_blank", rel: "noopener", textContent: "Get the Hurtle app" }),
+    ".",
+  );
+  $("start").disabled = $("later").disabled = true;
+  if (!$("browser").hidden) {
+    $("browser").classList.add("primary");
+    $("start").classList.remove("primary");
+    $("browser").focus();
+  }
 }
 
 /** A direct video file: show a frame, its resolution and length. */
@@ -171,6 +191,12 @@ const PROBE_TIMEOUT = 110;
 async function loadQualities(p) {
   $("qualityRow").hidden = false;
   fillTypes(false);
+  if (hostGone) {
+    $("quality").replaceChildren(new Option("Unavailable", ""));
+    $("quality").disabled = true;
+    $("size").textContent = "unknown";
+    return;
+  }
   $("filename").placeholder = "Use the video title";
   $("size").textContent = "…";
   const q = $("quality");
@@ -315,7 +341,7 @@ async function resolve(action) {
   if (r?.ok) return window.close();
   resolving = false;
   $("error").textContent = r?.error || "Something went wrong";
-  for (const b of document.querySelectorAll("footer button")) b.disabled = listPage && (b.id === "start" || b.id === "later");
+  for (const b of document.querySelectorAll("footer button")) b.disabled = (listPage || hostGone) && (b.id === "start" || b.id === "later");
 }
 
 $("start").onclick = () => resolve("start");
@@ -325,6 +351,6 @@ $("browser").onclick = () => resolve("browser");
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") return resolve("cancel");
   // Enter starts from the text fields; on a button or list it keeps its own meaning.
-  if (e.key === "Enter" && e.target instanceof HTMLInputElement && !e.isComposing && !listPage) resolve("start");
+  if (e.key === "Enter" && e.target instanceof HTMLInputElement && !e.isComposing && !listPage && !hostGone) resolve("start");
 });
 init();

@@ -1,0 +1,55 @@
+# Maintainer: arafays
+# Do not publish at pkgver=0.2.2: that tarball has no hurtle.desktop, hurtle.png
+# or LICENSE, and the checksums below are SKIP. Run scripts/update-aur.sh <version>
+# against the first release built with the current scripts/package.sh.
+pkgname=hurtle-bin
+_name=hurtle
+pkgver=0.2.2
+pkgrel=1
+pkgdesc='Multi-connection download manager with browser extension and yt-dlp video support'
+arch=('x86_64' 'aarch64')
+url='https://github.com/arafays/hurtle'
+license=('MIT')
+depends=('glibc' 'libxkbcommon' 'vulkan-icd-loader')
+optdepends=('yt-dlp: video sites and HLS/DASH streams'
+            'ffmpeg: merging video and audio streams'
+            'deno: YouTube extraction')
+provides=('hurtle')
+conflicts=('hurtle')
+source_x86_64=("$_name-$pkgver-linux-x86_64.tar.gz::$url/releases/download/v$pkgver/$_name-$pkgver-linux-x86_64.tar.gz")
+source_aarch64=("$_name-$pkgver-linux-aarch64.tar.gz::$url/releases/download/v$pkgver/$_name-$pkgver-linux-aarch64.tar.gz")
+sha256sums_x86_64=('SKIP')
+sha256sums_aarch64=('SKIP')
+
+package() {
+  cd "$_name-$pkgver-linux-$CARCH"
+  install -Dm755 hurtle hurtle-host hurtle-cli -t "$pkgdir/usr/bin"
+  install -Dm644 LICENSE -t "$pkgdir/usr/share/licenses/$pkgname"
+  install -Dm644 hurtle.desktop -t "$pkgdir/usr/share/applications"
+  install -Dm644 hurtle.png "$pkgdir/usr/share/icons/hicolor/128x128/apps/hurtle.png"
+
+  # System-wide native-messaging manifests (same ids as the app's per-user ones).
+  local host=io.github.arafays.hurtle d
+  for d in etc/opt/chrome etc/chromium etc/opt/edge; do
+    install -d "$pkgdir/$d/native-messaging-hosts"
+    cat > "$pkgdir/$d/native-messaging-hosts/$host.json" <<JSON
+{
+  "name": "$host",
+  "description": "Hurtle download manager",
+  "path": "/usr/bin/hurtle-host",
+  "type": "stdio",
+  "allowed_origins": ["chrome-extension://llabdeoinnakkcncicakgafkjkkjfdgh/"]
+}
+JSON
+  done
+  install -d "$pkgdir/usr/lib/mozilla/native-messaging-hosts"
+  cat > "$pkgdir/usr/lib/mozilla/native-messaging-hosts/$host.json" <<JSON
+{
+  "name": "$host",
+  "description": "Hurtle download manager",
+  "path": "/usr/bin/hurtle-host",
+  "type": "stdio",
+  "allowed_extensions": ["hurtle@arafays.github.io"]
+}
+JSON
+}

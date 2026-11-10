@@ -5,10 +5,20 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+  # Advisories appear without any code change, so audit weekly too.
+  schedule:
+    - cron: "17 5 * * 1"
+  # The release workflow gates on this whole workflow.
+  workflow_call:
+    inputs:
+      skip-e2e:
+        description: "Skip the non-blocking e2e job (the release gate does not wait on it)"
+        type: boolean
+        default: false
 
 concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
@@ -34,15 +44,15 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Linux build dependencies (GPUI)
         if: runner.os == 'Linux'
         run: sudo scripts/ci-linux-deps.sh
       # Only Rust (with clippy + rustfmt, see mise.toml); node/aube/linters aren't needed here.
-      - uses: jdx/mise-action@v4
+      - uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b # v5.2.7
         with:
           install_args: rust
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           shared-key: ci-${{ matrix.key }}
           # Pull requests restore main's cache but never write one.
@@ -60,11 +70,11 @@ jobs:
       # `mise run` would otherwise install Rust too.
       MISE_DISABLE_TOOLS: rust
     steps:
-      - uses: actions/checkout@v7
-      - uses: jdx/mise-action@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b # v5.2.7
         with:
           install_args: node aube shellcheck actionlint
-      - uses: actions/cache@v6
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.local/share/aube/store
           key: aube-store-${{ runner.os }}-${{ hashFiles('extension/aube-lock.yaml') }}
@@ -72,3 +82,67 @@ jobs:
       - run: mise run ext:lint
       - run: mise run ci:shellcheck
       - run: mise run ci:lint
+
+  # cargo-deny (deny.toml): RustSec advisories, licenses, bans and sources.
+  deny:
+    name: cargo-deny
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    env:
+      # `mise run` installs the task's own tool (cargo-deny, a prebuilt binary), not Rust.
+      MISE_DISABLE_TOOLS: rust
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b # v5.2.7
+        with:
+          install: false
+      - run: mise run ci:deny
+
+  # Headless Chromium (Chrome for Testing: branded Chrome ignores --load-extension)
+  # + extension + host + the real app under Xvfb with software Vulkan (lavapipe)
+  # + yt-dlp/ffmpeg on a local HLS stream. It starts a GPU toolkit app on a virtual
+  # display, so it is not yet proven stable on hosted runners: it reports but
+  # does not block (continue-on-error). Drop that line once it has been green for a while.
+  e2e:
+    name: Extension e2e (headless Chromium)
+    if: ${{ !inputs.skip-e2e }}
+    runs-on: ubuntu-22.04
+    continue-on-error: true
+    timeout-minutes: 45
+    env:
+      HURTLE_BROWSER: /opt/chrome-for-testing/chrome
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: System packages (GPUI, Xvfb, software Vulkan, ffmpeg)
+        run: |
+          sudo scripts/ci-linux-deps.sh
+          sudo apt-get install -y --no-install-recommends xvfb mesa-vulkan-drivers libgl1-mesa-dri ffmpeg curl unzip jq
+      - name: Chrome for Testing + yt-dlp
+        run: |
+          url=$(curl -fsSL https://googlechromelabs.github.io/chrome-for-testing/last-known-good-versions-with-downloads.json \
+            | jq -r '.channels.Stable.downloads.chrome[] | select(.platform=="linux64") | .url')
+          curl -fsSL "$url" -o "$RUNNER_TEMP/chrome.zip"
+          sudo mkdir -p /opt/chrome-for-testing
+          sudo unzip -q "$RUNNER_TEMP/chrome.zip" -d "$RUNNER_TEMP/cft"
+          sudo mv "$RUNNER_TEMP"/cft/chrome-linux64/* /opt/chrome-for-testing/
+          mkdir -p "$HOME/.local/bin"
+          curl -fsSL https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_linux -o "$HOME/.local/bin/yt-dlp"
+          chmod +x "$HOME/.local/bin/yt-dlp"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b # v5.2.7
+        with:
+          install_args: rust node
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          shared-key: ci-e2e
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+          cache-on-failure: true
+      - name: Run e2e
+        env:
+          MISE_DISABLE_TOOLS: aube,shellcheck,actionlint
+        run: |
+          # Unix socket paths are limited to ~108 bytes: keep the runtime dir short.
+          mkdir -m 700 /tmp/xdg
+          export XDG_RUNTIME_DIR=/tmp/xdg
+          unset WAYLAND_DISPLAY
+          xvfb-run -a -s "-screen 0 1280x800x24" mise run ext:e2e

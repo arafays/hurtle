@@ -42,6 +42,10 @@ The e2e test runs in isolation: a throwaway profile with a profile-local `Native
 - Linux build dependencies for GPUI are in `scripts/ci-linux-deps.sh`.
 - Workflows are linted with `mise run ci:lint` (actionlint).
 
+**Installers and CI.**
+- `docs/install.sh` and `docs/install.ps1` are the one-line installers. `scripts/package-deb.sh` (also writes the system-wide native-messaging manifests) and `package-dmg.sh` build packages; `packaging/{linux/aur,windows,macos}` hold the AUR, winget/Scoop and Homebrew templates, filled by `scripts/update-aur.sh` and `scripts/update-manifests.sh`.
+- CI has a `verify` gate that the release needs, an `e2e` job, and cargo-deny (`mise run ci:deny`, config in `deny.toml`). Actions are pinned by SHA.
+
 Unix socket paths must stay under about 108 bytes. Put test sockets in `$XDG_RUNTIME_DIR`, not in deep temp dirs.
 
 ## Architecture
@@ -55,14 +59,18 @@ hurtle-cli ── uses Engine directly (data in $HURTLE_DATA/cli), or --send ove
 
 ### hurtle-core
 - `Engine` owns its own tokio runtime. The GUI never runs tokio: it polls `engine.snapshot()` every 250ms and re-renders only when a fingerprint in `view.rs` changes. If you add a field the UI shows, add it to that fingerprint.
-- Lock order is always `jobs` → a job's `rec`. Never lock `jobs` while holding a record lock.
+- Lock order is always `path_claim` → `jobs` → a job's `rec`. Never lock `jobs` while holding a record lock. `path_claim` serialises choosing an output path, so two downloads can't take the same name (media names are uniqued the same way).
 - **Plain files (`job.rs`):**
   - The probe is `GET` with `Range: bytes=0-0`. A 206 with a total in Content-Range means resumable, multi-connection. A 200 means the response is streamed as a single connection.
+  - Probe fallbacks: 503/429 are retried; a 400/405/416/501, or a 206 with no total, repeats the probe without `Range`.
+  - Segment requests send `If-Range` with a strong ETag only (never Last-Modified, which some servers change per request). A changed file answers 200, and the download restarts from zero. On resume, `same_validators` compares ETags, and Last-Modified only when neither side has an ETag.
+  - Cookie and auth headers are dropped when a redirect leaves the host (`util::headers_for_redirect`).
   - Dynamic segmentation as in IDM. The pure scheduling logic is in `sched.rs`, with unit tests:
     - An idle worker first takes an orphaned segment.
     - Next, it takes over the whole remainder of a stalled owner (no data for 10s).
     - Otherwise it splits the segment with the longest ETA (remaining ÷ EWMA speed). The cut is weighted so both halves finish together.
     - A finished worker requests its next range over the same keep-alive connection. Leftover bodies are drained so the connection goes back to the pool.
+  - Failed downloads retry on their own when `Settings.auto_retry` (default on): up to 5 times, pauses growing from 30s to 5 min (`auto_retry_delay`), plain files only (yt-dlp has its own), transient errors only (`is_transient`); the count resets when bytes arrived.
   - `connections` is the user's maximum. A download starts with up to 4 workers and the `Ramp` adds more while throughput keeps rising. A 429, 503 or connect error halves the cap.
   - `Segment.speed` and `last_data` are `#[serde(skip)]`. The app's expanded row shows them per connection.
   - Data is written in place into a preallocated `name.part`, then renamed.
@@ -86,6 +94,7 @@ hurtle-cli ── uses Engine directly (data in $HURTLE_DATA/cli), or --send ove
     - An audio type (mp3/m4a/…) turns the download into audio-only.
     - Without ffmpeg, `without_merge` drops the `bv+ba` pairs.
   - Progress keeps one `Stream` per yt-dlp format_id. They become `rec.segments`, one block per stream, and `rec.note` (e.g. "Video (stream 1) · fragment 3/40, 8 at a time"). The total only grows while downloading.
+  - Headers (Cookie, Referer) reach yt-dlp through a 0600 `--config-locations` file, never the command line.
   - yt-dlp can't share the token buckets. It gets `--limit-rate` = the smaller of the per-file and global limits, and the job restarts (`Job::restart`) when either changes.
   - For extractor sites, header forwarding is limited to Cookie and Referer: overriding the User-Agent breaks yt-dlp's extraction.
   - yt-dlp is found at `HURTLE_YTDLP`, else in `tools::search_dirs()`: next to our executable, on `PATH`, Homebrew, `/usr/bin`, `~/.local/bin`, WinGet `Links` and Scoop `shims`, and last `$HURTLE_DATA/tools`. The browser launches the host without the user's shell PATH, so mise shims are invisible to it.
@@ -110,6 +119,9 @@ hurtle-cli ── uses Engine directly (data in $HURTLE_DATA/cli), or --send ove
 - **Persistence:**
   - `$HURTLE_DATA` (default `~/.local/share/hurtle`) holds `downloads.json` and `settings.json`. They are saved every 2s and on `shutdown()`.
   - Active jobs come back Paused.
+  - The data dir is 0700 and its files 0600 (`util::create_private_dir`, `write_private`).
+  - An unreadable store is kept as `*.json.bak`; bad records in `downloads.json` are skipped individually and backed up, so one corrupt entry doesn't drop the list.
+  - `Settings.notify` (default on) and `auto_retry` are settable over IPC (`notify`, `autoRetry`), in the app's folders panel and in the popup.
   - New `Download` fields need `#[serde(default)]`, or old stores stop loading.
 - **IPC (`ipc.rs`):**
   - `IpcRequest` is tagged by `type`, camelCase: `add | probe | ping | show | settings`.
@@ -119,10 +131,13 @@ hurtle-cli ── uses Engine directly (data in $HURTLE_DATA/cli), or --send ove
     - The server creates the next pipe instance before handing off the connected one.
     - The client opens the pipe as a file and waits for the reply on a thread, since pipe handles have no read timeout.
   - Request handling (`handle_request`) is shared; only the listener is per-OS.
+  - A request line is capped at 4 MiB.
+  - IPC `downloadDir`/`typeDirs` go through `check_ipc_dir`, which refuses `..` and places where a dropped file runs later (`~/.ssh`, autostart, systemd, LaunchAgents…). The app's picker and the CLI are unrestricted.
 - **Native-host registration (`nmh.rs`):**
   - It is used by `hurtle-host --register/--unregister`, by `install.sh`, and on app start (`ensure_registered`).
   - App start only registers when no working registration exists, so a dev build never takes over an installed host.
   - Linux and macOS: it writes manifests only into installed browsers' dirs, plus Firefox's dir always.
+  - `registered_host` also accepts the .deb's system manifests on Linux (`/etc/opt/chrome`, `/etc/chromium`, `/etc/opt/edge`, `/usr/lib/mozilla`), so a package install is not shadowed by per-user ones.
   - Windows: it writes manifests to the data dir and adds `HKCU\Software\<browser>\NativeMessagingHosts` keys via `reg`.
 
 ### hurtle-host
@@ -130,6 +145,7 @@ hurtle-cli ── uses Engine directly (data in $HURTLE_DATA/cli), or --send ove
 - It relays requests to the app's socket and launches the app if it isn't running (`HURTLE_APP`, else the sibling binary, else PATH). Exceptions:
   - `ping` and settings reads never launch the app.
   - `probe` runs yt-dlp in-process, so filling the dialog doesn't start the app.
+- `log` replies carry the tail of `hurtle.log` plus its absolute `path`; the extension's log page shows it.
 - Native-messaging replies are capped at 1 MB, so `MediaInfo` is a trimmed summary, never raw `yt-dlp -J` output.
 
 ### hurtle-app (binary `hurtle`)
@@ -149,12 +165,16 @@ hurtle-cli ── uses Engine directly (data in $HURTLE_DATA/cli), or --send ove
   - Missing roles are derived and pushed to a minimum contrast.
   - `theme::poll` re-hashes the source files about once a second, so a generator's rewrite or a symlink swap re-themes the app live.
   - `HURTLE_THEME=<name|path>` overrides the setting, for screenshots.
+- **Notifications (`notify.rs`):** a watcher on the engine's runtime announces completed/failed downloads (not ones already in the list at start) while `Settings.notify` is on. Rows also offer remove-with-file and retry.
 - **Shutdown:** `on_app_quit` and a SIGTERM/SIGINT/SIGHUP handler both call `engine.shutdown()`. It saves state, kills yt-dlp and removes the socket.
 
 ### extension/
 - `src/` is shared. `build.sh` writes two manifests:
   - **Chrome:** uses `background.service_worker`. A fixed `key` pins the ID `llabdeoinnakkcncicakgafkjkkjfdgh`; the ID is also in `chrome-id.txt`.
   - **Firefox:** uses `background.scripts`, with gecko id `hurtle@arafays.github.io` and `strict_min_version` 142.
+- `background.js` injects content scripts only into an allowlist of pages (no browser-internal or store pages).
+- `folders.js` also holds `LIMITS`, `CONNECTIONS` and `INSTALL_URL` (the popup and dialog use them; a test checks it against the core table).
+- The dialog has a host-missing mode (install link) and the popup shows an install notice when the native host doesn't answer.
 - `background.js` keeps all state in `storage.session`, because Chrome unloads the service worker.
 - **Download interception:** `downloads.onCreated` pauses the browser's own download, then opens `dialog.html` as a popup window. Closing that window means cancel. `passThrough` stops Hurtle from re-catching downloads it handed back to the browser.
 - **Media sniffing:** `webRequest.onHeadersReceived` sniffs media per tab.

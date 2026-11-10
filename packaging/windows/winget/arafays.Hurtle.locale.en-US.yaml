@@ -1,0 +1,17 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.6.0.schema.json
+PackageIdentifier: arafays.Hurtle
+PackageVersion: @VERSION@
+PackageLocale: en-US
+Publisher: arafays
+PublisherUrl: https://github.com/arafays
+PackageName: Hurtle
+PackageUrl: https://github.com/arafays/hurtle
+License: MIT
+ShortDescription: Multi-connection download manager with browser integration and video support.
+Moniker: hurtle
+Tags:
+  - download-manager
+  - downloader
+  - yt-dlp
+ManifestType: defaultLocale
+ManifestVersion: 1.6.0

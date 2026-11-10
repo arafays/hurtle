@@ -151,6 +151,10 @@ async function native(msg) {
     return r;
   } catch (e) {
     dlog(what, { ms: Date.now() - t, threw: String(e?.message || e) }, "error");
+    // Chrome: "Specified native messaging host not found."; Firefox: "No such native application hurtle".
+    if (/native messaging host not found|No such native application/i.test(String(e?.message || e))) {
+      throw new Error("Hurtle isn't installed or the native host is missing");
+    }
     throw e;
   }
 }
@@ -588,6 +592,8 @@ api.contextMenus.onClicked.addListener(async (info, tab) => {
 
 // ---------- messages from popup / content script / dialog ----------
 
+const CONTENT_MSGS = new Set(["top-host", "media-list", "page-sizes", "download-media", "download-page"]);
+
 api.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   const reply = (p) => {
     p.then(sendResponse, (e) => sendResponse({ ok: false, error: String(e?.message || e) }));
@@ -596,6 +602,10 @@ api.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg?.type && !/^debug-/.test(msg.type)) {
     dlog(`message ${msg.type}`, { from: sender.tab ? `tab ${sender.tab.id}` : sender.url?.split("/").pop()?.split("#")[0] }, "debug");
   }
+  // Content scripts run inside web pages: they may only send the page-facing
+  // messages. Everything else (settings, logs, dialog state) is for our own pages.
+  const own = sender.id === api.runtime.id && !!sender.url && sender.url.startsWith(api.runtime.getURL(""));
+  if (!own && !CONTENT_MSGS.has(msg?.type)) return reply(Promise.resolve({ ok: false, error: "forbidden" }));
   switch (msg?.type) {
     case "debug-log":
       dlog(msg.event, msg.data, msg.level || "info");
@@ -617,6 +627,8 @@ api.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           type: "settings",
           connections: msg.connections ?? null,
           speedLimit: msg.speedLimit ?? null,
+          autoRetry: msg.autoRetry ?? null,
+          notify: msg.notify ?? null,
           downloadDir: msg.downloadDir ?? null,
           typeDirs: msg.typeDirs ?? null,
         }),
@@ -684,10 +696,13 @@ api.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     case "page-sizes":
       return reply(pageSizes(msg.pageUrl || sender.tab?.url, msg.cookieStoreId ?? sender.tab?.cookieStoreId));
     case "dialog-probe":
+      if (!/^pending:/.test(msg.key)) return reply(Promise.resolve({ ok: false, error: "forbidden" }));
       return reply(dialogProbe(msg.key));
     case "dialog-load":
+      if (!/^pending:/.test(msg.key)) return reply(Promise.resolve(null));
       return reply(api.storage.session.get(msg.key).then((r) => r[msg.key] || null));
     case "dialog-resolve":
+      if (!/^pending:/.test(msg.key)) return reply(Promise.resolve({ ok: false, error: "forbidden" }));
       return reply(resolvePending(msg.key, msg.action, msg.choice));
   }
 });

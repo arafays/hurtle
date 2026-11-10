@@ -23,7 +23,7 @@ async function env() {
     `Extension      ${m.name} ${m.version} (${api.runtime.id})`,
     `Browser        ${navigator.userAgent}`,
     `Site access    ${access ? "granted on all sites" : "NOT GRANTED: the button over videos, media detection and cookies don't work. Grant it from the toolbar popup."}`,
-    `Native host    ${ping?.ok ? `reachable, hurtle-host ${ping.version}${ping.error ? ` (${ping.error})` : ", app running"}` : `NOT reachable: ${ping?.error || "no answer"}`}`,
+    `Native host    ${ping?.ok ? `reachable, hurtle-host ${ping.version}${ping.error ? ` (${ping.error})` : ", app running"}` : `NOT reachable: ${ping?.error || "no answer"}. Install Hurtle: https://arafays.github.io/hurtle/#install`}`,
     `Settings       ${JSON.stringify(Object.fromEntries(Object.entries(settings).filter(([k]) => !["debugLog", "status", "history"].includes(k))))}`,
   ];
   if (settings.status) lines.push(`Last status    ${settings.status.ok ? "ok" : "error"}: ${settings.status.message} (${new Date(settings.status.at).toLocaleString()})`);
@@ -41,12 +41,13 @@ async function load() {
   show($("ext"), (ext?.debugLog || []).join("\n"));
   if (host?.ok) {
     show($("host"), host.log?.trimEnd());
-    $("hostPath").textContent = "(from $HURTLE_DATA/logs/hurtle.log, e.g. ~/.local/share/hurtle/logs/hurtle.log)";
+    $("hostPath").textContent = host.path ? `(from ${host.path})` : "(from hurtle.log in Hurtle's data folder)";
   } else {
-    show($("host"), `Couldn't read it through the native host: ${host?.error || "no answer"}. The file is $HURTLE_DATA/logs/hurtle.log (usually ~/.local/share/hurtle/logs/hurtle.log).`);
+    show($("host"), `Couldn't read it through the native host: ${host?.error || "no answer"}. The file is logs/hurtle.log inside Hurtle's data folder. If Hurtle isn't installed yet, see ${HURTLE_INSTALL_URL}.`);
   }
 }
 
+const HURTLE_INSTALL_URL = "https://arafays.github.io/hurtle/#install";
 const all = () => ["== Setup", $("env").textContent, "== Browser extension", $("ext").textContent, "== Hurtle", $("host").textContent].join("\n");
 
 $("refresh").onclick = load;

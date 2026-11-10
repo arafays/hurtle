@@ -93,6 +93,14 @@
           <span>Global speed limit</span>
           <select id="appSpeedLimit"></select>
         </label>
+        <label class="row">
+          <span>Retry failed downloads automatically</span>
+          <input type="checkbox" class="switch" id="appAutoRetry" />
+        </label>
+        <label class="row">
+          <span>Notify when a download finishes or fails</span>
+          <input type="checkbox" class="switch" id="appNotify" />
+        </label>
         <p id="appNote" class="empty" hidden>Start Hurtle to change these.</p>
 
         <h2>Video</h2>
@@ -144,6 +152,17 @@
     <div id="access" class="notice" hidden>
       Hurtle needs site access to see media and forward cookies for logged-in downloads.
       <button id="grant">Allow on all sites</button>
+    </div>
+
+    <div id="setup" class="notice" hidden>
+      <strong>Hurtle isn't installed for this browser.</strong>
+      <ol>
+        <li>Install the app: <code>curl -fsSL https://arafays.github.io/hurtle/install.sh | sh</code> (Linux, macOS) or <code>irm https://arafays.github.io/hurtle/install.ps1 | iex</code> (Windows).</li>
+        <li>Start Hurtle once; it registers itself.</li>
+        <li>Restart the browser.</li>
+      </ol>
+      <a id="setupGet" href="#install" target="_blank" rel="noopener">Get the Hurtle app</a> ·
+      <a id="setupLog" href="log.html" target="_blank">Open the debug log</a>
     </div>
 
     <p id="status" class="status"></p>

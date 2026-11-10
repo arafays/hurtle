@@ -106,6 +106,11 @@ pub struct Settings {
     pub min_segment: u64,
     /// Retries per connection before it gives its segment back.
     pub max_retries: u32,
+    /// Retry a download a few times, with growing pauses, after the network
+    /// drops, instead of failing it.
+    pub auto_retry: bool,
+    /// Desktop notifications when a download finishes or fails.
+    pub notify: bool,
     /// Downloads allowed to run at once; the rest wait as `Queued`.
     pub max_active: usize,
     /// Global speed limit across all downloads, bytes/s (0 = unlimited).
@@ -125,6 +130,8 @@ impl Default for Settings {
             connections: 8,
             min_segment: 512 * 1024,
             max_retries: 6,
+            auto_retry: true,
+            notify: true,
             max_active: 4,
             speed_limit: 0,
             theme: "system".into(),
@@ -145,16 +152,16 @@ impl Settings {
     /// `settings.json` in the data dir, read without starting an engine
     /// (the native host answers the extension with it when the app is closed).
     pub fn load() -> Self {
-        std::fs::read(data_dir().join("settings.json"))
-            .ok()
-            .and_then(|b| serde_json::from_slice(&b).ok())
-            .unwrap_or_default()
+        read_settings(&data_dir().join("settings.json"))
     }
 
     pub fn save(&self) -> std::io::Result<()> {
         let dir = data_dir();
-        std::fs::create_dir_all(&dir)?;
-        std::fs::write(dir.join("settings.json"), serde_json::to_vec_pretty(self)?)
+        util::create_private_dir(&dir)?;
+        util::write_private(
+            &dir.join("settings.json"),
+            &serde_json::to_vec_pretty(self)?,
+        )
     }
 
     /// Apply a settings change from IPC. Returns whether anything changed.
@@ -166,6 +173,14 @@ impl Settings {
         }
         if let Some(l) = change.speed_limit {
             self.speed_limit = l;
+            changed = true;
+        }
+        if let Some(b) = change.auto_retry {
+            self.auto_retry = b;
+            changed = true;
+        }
+        if let Some(b) = change.notify {
+            self.notify = b;
             changed = true;
         }
         if let Some(d) = &change.download_dir {
@@ -204,6 +219,95 @@ fn folder(input: &str) -> Result<PathBuf, String> {
         return Err(format!("{} is a file, not a folder", path.display()));
     }
     Ok(path)
+}
+
+/// Resolve a path that may not exist yet: canonicalize its deepest existing
+/// ancestor (following symlinks) and re-append the rest.
+fn resolve_loose(path: &Path) -> PathBuf {
+    let mut rest = vec![];
+    let mut cur = path;
+    loop {
+        if let Ok(real) = cur.canonicalize() {
+            return rest.iter().rev().fold(real, |p, c| p.join(c));
+        }
+        match (cur.parent(), cur.file_name()) {
+            (Some(parent), Some(name)) => {
+                rest.push(name.to_owned());
+                cur = parent;
+            }
+            _ => return path.to_path_buf(),
+        }
+    }
+}
+
+/// The folder blocklist applied to a settings change that came over IPC
+/// (also used by hurtle-host when it edits settings with the app closed).
+pub fn check_ipc_settings(change: &ipc::SettingsChange) -> Result<(), String> {
+    change
+        .download_dir
+        .iter()
+        .chain(change.type_dirs.iter().flat_map(|m| m.values()))
+        .filter(|d| !d.trim().is_empty())
+        .try_for_each(|d| check_ipc_dir(d))
+}
+
+/// Folders an IPC caller (the extension, or whoever reaches the socket) may
+/// not point downloads at: places where a dropped file runs by itself later.
+/// The app's own folder picker and the CLI are not restricted.
+fn check_ipc_dir(input: &str) -> Result<(), String> {
+    let path = folder(input)?;
+    if path
+        .components()
+        .any(|c| matches!(c, std::path::Component::ParentDir))
+    {
+        return Err(format!("\"{input}\" must not contain \"..\""));
+    }
+    let real = resolve_loose(&path);
+    let mut bad: Vec<PathBuf> = vec![];
+    if let Some(home) = dirs::home_dir() {
+        for p in [
+            ".ssh",
+            ".gnupg",
+            ".config/autostart",
+            ".config/systemd",
+            ".config/fish/conf.d",
+            ".config/fish/functions",
+            ".config/environment.d",
+            ".config/plasma-workspace",
+            ".config/autostart-scripts",
+            ".bashrc.d",
+            ".profile.d",
+            ".local/bin",
+            ".mozilla/native-messaging-hosts",
+            ".config/google-chrome/NativeMessagingHosts",
+            ".config/chromium/NativeMessagingHosts",
+            ".config/BraveSoftware/Brave-Browser/NativeMessagingHosts",
+            ".config/microsoft-edge/NativeMessagingHosts",
+            ".config/vivaldi/NativeMessagingHosts",
+            ".config/opera/NativeMessagingHosts",
+            "Library/Application Support/Google/Chrome/NativeMessagingHosts",
+            "Library/Application Support/Mozilla/NativeMessagingHosts",
+            ".local/share/applications",
+            "Library/LaunchAgents",
+        ] {
+            bad.push(home.join(p));
+        }
+    }
+    if cfg!(windows)
+        && let Some(cfg) = dirs::config_dir()
+    {
+        bad.push(cfg.join("Microsoft/Windows/Start Menu"));
+    }
+    if bad
+        .iter()
+        .any(|b| real.starts_with(b) || real.starts_with(resolve_loose(b)))
+    {
+        return Err(format!(
+            "{} is a protected folder; choose it with Hurtle's folder picker",
+            path.display()
+        ));
+    }
+    Ok(())
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -436,6 +540,9 @@ pub(crate) struct Inner {
     ipc_path: Mutex<Option<PathBuf>>,
     /// Folder pickers asked for over IPC, waiting for the UI to show them.
     folder_picks: Mutex<Vec<FolderPick>>,
+    /// Held while a download picks its file name and records the path, so
+    /// two downloads probing at once can't claim the same one.
+    pub(crate) path_claim: Mutex<()>,
 }
 
 /// "Choose a folder" asked by a client (the extension). The UI shows its
@@ -478,6 +585,52 @@ fn migrate_legacy_dir(old: &Path, new: &Path) {
     }
 }
 
+/// Keep the unreadable file as `<name>.bak` before it gets overwritten.
+fn back_up(path: &Path, why: &str) {
+    let bak = path.with_extension("json.bak");
+    eprintln!(
+        "hurtle: {} {why}; keeping a copy as {}",
+        path.display(),
+        bak.display()
+    );
+    let _ = std::fs::copy(path, bak);
+}
+
+/// `settings.json`; a file that exists but doesn't parse is backed up first.
+fn read_settings(path: &Path) -> Settings {
+    let Ok(bytes) = std::fs::read(path) else {
+        return Settings::default();
+    };
+    serde_json::from_slice(&bytes).unwrap_or_else(|e| {
+        back_up(path, &format!("is unreadable ({e})"));
+        Settings::default()
+    })
+}
+
+/// `downloads.json`, one record at a time so a single bad one doesn't take
+/// the rest with it. Anything skipped is kept in `downloads.json.bak`.
+fn read_records(path: &Path) -> Vec<Download> {
+    let Ok(bytes) = std::fs::read(path) else {
+        return Vec::new();
+    };
+    let values: Vec<serde_json::Value> = match serde_json::from_slice(&bytes) {
+        Ok(v) => v,
+        Err(e) => {
+            back_up(path, &format!("is unreadable ({e})"));
+            return Vec::new();
+        }
+    };
+    let total = values.len();
+    let records: Vec<Download> = values
+        .into_iter()
+        .filter_map(|v| serde_json::from_value(v).ok())
+        .collect();
+    if records.len() < total {
+        back_up(path, &format!("has {} bad records", total - records.len()));
+    }
+    records
+}
+
 impl Engine {
     /// Load persisted downloads/settings from [`data_dir`] and start the runtime.
     pub fn new() -> Result<Self> {
@@ -485,18 +638,12 @@ impl Engine {
     }
 
     pub fn with_data_dir(dir: &Path) -> Result<Self> {
-        std::fs::create_dir_all(dir).with_context(|| format!("creating {}", dir.display()))?;
+        util::create_private_dir(dir).with_context(|| format!("creating {}", dir.display()))?;
         let store_path = dir.join("downloads.json");
         let settings_path = dir.join("settings.json");
 
-        let settings: Settings = std::fs::read(&settings_path)
-            .ok()
-            .and_then(|b| serde_json::from_slice(&b).ok())
-            .unwrap_or_default();
-        let mut records: Vec<Download> = std::fs::read(&store_path)
-            .ok()
-            .and_then(|b| serde_json::from_slice(&b).ok())
-            .unwrap_or_default();
+        let settings = read_settings(&settings_path);
+        let mut records = read_records(&store_path);
         // Anything interrupted by a quit comes back paused.
         for r in &mut records {
             if r.status.is_active() || r.status == Status::Queued {
@@ -541,6 +688,7 @@ impl Engine {
             dirty: AtomicBool::new(false),
             ipc_path: Mutex::new(None),
             folder_picks: Mutex::new(Vec::new()),
+            path_claim: Mutex::new(()),
         });
 
         rt.spawn(ticker(inner.clone()));
@@ -586,11 +734,7 @@ impl Engine {
     /// the new link and resume it. The flag says which happened.
     pub fn add_or_relink(&self, req: AddRequest) -> Result<(u64, bool)> {
         let url = req.url.trim().to_string();
-        let parsed = reqwest::Url::parse(&url).with_context(|| format!("invalid URL: {url}"))?;
-        anyhow::ensure!(
-            matches!(parsed.scheme(), "http" | "https"),
-            "only http(s) URLs are supported"
-        );
+        util::require_http(&url)?;
         if let Some(id) = self.relink(&req, &url) {
             return Ok((id, true));
         }
@@ -740,6 +884,7 @@ impl Engine {
             // Another CDN node or a re-signed link often sends a different
             // ETag for the same bytes; the size (and the probe) decide.
             rec.etag = None;
+            rec.last_modified = None;
             rec.status = if req.paused {
                 Status::Paused
             } else {
@@ -910,6 +1055,8 @@ impl Engine {
         #[cfg(unix)]
         {
             let path = ipc::socket_path();
+            ipc::guard_socket_dir(true)
+                .with_context(|| format!("securing the folder of {}", path.display()))?;
             if path.exists() {
                 if std::os::unix::net::UnixStream::connect(&path).is_ok() {
                     anyhow::bail!(
@@ -924,6 +1071,10 @@ impl Engine {
                 tokio::net::UnixListener::bind(&path)
                     .with_context(|| format!("binding {}", path.display()))?
             };
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
+            }
             *self.inner.ipc_path.lock().unwrap() = Some(path.clone());
             self.rt.spawn(async move {
                 while let Ok((stream, _)) = listener.accept().await {
@@ -941,6 +1092,7 @@ impl Engine {
                 let _guard = self.rt.enter();
                 ServerOptions::new()
                     .first_pipe_instance(true)
+                    .reject_remote_clients(true)
                     .create(&name)
                     .with_context(|| format!("another Hurtle instance owns {name}"))?
             };
@@ -951,7 +1103,10 @@ impl Engine {
                     }
                     // Open the next instance before handing this one off, so
                     // there's never a moment with no pipe to connect to.
-                    let next = match ServerOptions::new().create(&name) {
+                    let next = match ServerOptions::new()
+                        .reject_remote_clients(true)
+                        .create(&name)
+                    {
                         Ok(n) => n,
                         Err(_) => break,
                     };
@@ -972,10 +1127,30 @@ async fn serve_client<S>(stream: S, engine: std::sync::Weak<Engine>, on_request:
 where
     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Send + 'static,
 {
-    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+    use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
+    /// A request is a few KB; anything bigger is a broken or hostile client.
+    const MAX_LINE: u64 = 4 << 20;
     let (r, mut w) = tokio::io::split(stream);
-    let mut lines = BufReader::new(r).lines();
-    while let Ok(Some(line)) = lines.next_line().await {
+    let mut reader = BufReader::new(r);
+    let mut buf = Vec::new();
+    loop {
+        buf.clear();
+        match (&mut reader)
+            .take(MAX_LINE + 1)
+            .read_until(b'\n', &mut buf)
+            .await
+        {
+            Ok(0) | Err(_) => return,
+            Ok(_) if buf.len() as u64 > MAX_LINE => {
+                let mut out = serde_json::to_string(&ipc::IpcReply::err("request too large"))
+                    .unwrap_or_default();
+                out.push('\n');
+                let _ = w.write_all(out.as_bytes()).await;
+                return;
+            }
+            Ok(_) => {}
+        }
+        let line = String::from_utf8_lossy(&buf);
         let Some(engine) = engine.upgrade() else {
             return;
         };
@@ -997,7 +1172,13 @@ where
 
 async fn handle_request(engine: &Engine, req: &ipc::IpcRequest) -> ipc::IpcReply {
     match req {
-        ipc::IpcRequest::Add(add) => match engine.add_or_relink(add.clone()) {
+        ipc::IpcRequest::Add(add) => match add
+            .dir
+            .as_ref()
+            .map_or(Ok(()), |d| check_ipc_dir(&d.to_string_lossy()))
+            .map_err(anyhow::Error::msg)
+            .and_then(|_| engine.add_or_relink(add.clone()))
+        {
             Ok((id, resumed)) => ipc::IpcReply {
                 resumed: resumed.then_some(true),
                 ..ipc::IpcReply::ok(Some(id))
@@ -1030,6 +1211,9 @@ async fn handle_request(engine: &Engine, req: &ipc::IpcRequest) -> ipc::IpcReply
             }
         }
         ipc::IpcRequest::Settings(change) => {
+            if let Err(e) = check_ipc_settings(change) {
+                return ipc::IpcReply::err(e);
+            }
             let mut s = engine.settings();
             match s.apply(change) {
                 Ok(true) => engine.set_settings(s.clone()),
@@ -1153,7 +1337,11 @@ impl Inner {
             .collect();
         if let Ok(json) = serde_json::to_vec_pretty(&records) {
             let tmp = self.store_path.with_extension("json.tmp");
-            if std::fs::write(&tmp, json).is_ok() {
+            let written = util::create_private_file(&tmp).and_then(|mut f| {
+                std::io::Write::write_all(&mut f, &json)?;
+                f.sync_all()
+            });
+            if written.is_ok() {
                 let _ = std::fs::rename(&tmp, &self.store_path);
             }
         }
@@ -1162,7 +1350,7 @@ impl Inner {
     fn save_settings(&self) {
         let s = self.settings.lock().unwrap().clone();
         if let Ok(json) = serde_json::to_vec_pretty(&s) {
-            let _ = std::fs::write(&self.settings_path, json);
+            let _ = util::write_private(&self.settings_path, &json);
         }
     }
 }
@@ -1450,5 +1638,32 @@ mod tests {
                 ..want(&d.url, Kind::File)
             }
         ));
+    }
+
+    #[test]
+    fn bad_store_records_are_skipped_and_backed_up() {
+        let dir = std::env::temp_dir().join(format!("hurtle-store-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("downloads.json");
+        // Missing file: empty, and nothing to back up.
+        assert!(read_records(&path).is_empty());
+        assert!(!dir.join("downloads.json.bak").exists());
+
+        let good = serde_json::to_value(paused("https://h/a.bin", Kind::File)).unwrap();
+        let text = serde_json::to_vec(&vec![good, serde_json::json!({"id": "bad"})]).unwrap();
+        std::fs::write(&path, &text).unwrap();
+        assert_eq!(read_records(&path).len(), 1);
+        assert_eq!(std::fs::read(dir.join("downloads.json.bak")).unwrap(), text);
+
+        // Truncated file: nothing readable, original bytes kept.
+        std::fs::remove_file(dir.join("downloads.json.bak")).unwrap();
+        std::fs::write(&path, &text[..text.len() / 2]).unwrap();
+        assert!(read_records(&path).is_empty());
+        assert_eq!(
+            std::fs::read(dir.join("downloads.json.bak")).unwrap(),
+            &text[..text.len() / 2]
+        );
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }

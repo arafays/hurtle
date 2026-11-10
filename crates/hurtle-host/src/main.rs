@@ -85,8 +85,13 @@ fn describe(req: &IpcRequest) -> String {
                 "settings".into()
             } else {
                 format!(
-                    "settings connections={:?} speed_limit={:?} download_dir={:?} type_dirs={:?}",
-                    c.connections, c.speed_limit, c.download_dir, c.type_dirs
+                    "settings connections={:?} speed_limit={:?} auto_retry={:?} notify={:?} download_dir={:?} type_dirs={:?}",
+                    c.connections,
+                    c.speed_limit,
+                    c.auto_retry,
+                    c.notify,
+                    c.download_dir,
+                    c.type_dirs
                 )
             }
         }
@@ -141,6 +146,9 @@ fn relay(req: &IpcRequest) -> IpcReply {
             let IpcRequest::Settings(change) = req else {
                 unreachable!()
             };
+            if let Err(e) = hurtle_core::check_ipc_settings(change) {
+                return IpcReply::err(e);
+            }
             let mut s = hurtle_core::Settings::load();
             return match s.apply(change) {
                 Ok(changed) => {
@@ -224,7 +232,7 @@ fn read_message(r: &mut impl Read) -> Option<Vec<u8>> {
     let mut len = [0u8; 4];
     r.read_exact(&mut len).ok()?;
     let len = u32::from_ne_bytes(len) as usize;
-    if len > 64 * 1024 * 1024 {
+    if len > 4 * 1024 * 1024 {
         return None;
     }
     let mut buf = vec![0u8; len];

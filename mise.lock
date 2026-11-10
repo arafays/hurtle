@@ -49,44 +49,91 @@ url = "https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_
 url_api = "https://api.github.com/repos/rhysd/actionlint/releases/assets/384924919"
 provenance = "github-attestations"
 
+[[tools."aqua:EmbarkStudios/cargo-deny"]]
+version = "0.20.2"
+backend = "aqua:EmbarkStudios/cargo-deny"
+specifiers = ["0.20"]
+
+[tools."aqua:EmbarkStudios/cargo-deny"."platforms.linux-arm64"]
+checksum = "sha256:995c82be0defc7a025cae49a2aa2644ce8245c9a3318fc4103907c6a285e8c7d"
+checksum_source = "mise-versions"
+url = "https://github.com/EmbarkStudios/cargo-deny/releases/download/0.20.2/cargo-deny-0.20.2-aarch64-unknown-linux-musl.tar.gz"
+url_api = "https://api.github.com/repos/EmbarkStudios/cargo-deny/releases/assets/471598345"
+
+[tools."aqua:EmbarkStudios/cargo-deny"."platforms.linux-arm64-musl"]
+checksum = "sha256:995c82be0defc7a025cae49a2aa2644ce8245c9a3318fc4103907c6a285e8c7d"
+checksum_source = "mise-versions"
+url = "https://github.com/EmbarkStudios/cargo-deny/releases/download/0.20.2/cargo-deny-0.20.2-aarch64-unknown-linux-musl.tar.gz"
+url_api = "https://api.github.com/repos/EmbarkStudios/cargo-deny/releases/assets/471598345"
+
+[tools."aqua:EmbarkStudios/cargo-deny"."platforms.linux-x64"]
+checksum = "sha256:9f12ed4c49936e09b48bf862b595cde2fe64fcbd9d74dfacac6131ca824c8d5f"
+checksum_source = "mise-versions"
+url = "https://github.com/EmbarkStudios/cargo-deny/releases/download/0.20.2/cargo-deny-0.20.2-x86_64-unknown-linux-musl.tar.gz"
+url_api = "https://api.github.com/repos/EmbarkStudios/cargo-deny/releases/assets/471598214"
+
+[tools."aqua:EmbarkStudios/cargo-deny"."platforms.linux-x64-musl"]
+checksum = "sha256:9f12ed4c49936e09b48bf862b595cde2fe64fcbd9d74dfacac6131ca824c8d5f"
+checksum_source = "mise-versions"
+url = "https://github.com/EmbarkStudios/cargo-deny/releases/download/0.20.2/cargo-deny-0.20.2-x86_64-unknown-linux-musl.tar.gz"
+url_api = "https://api.github.com/repos/EmbarkStudios/cargo-deny/releases/assets/471598214"
+
+[tools."aqua:EmbarkStudios/cargo-deny"."platforms.macos-arm64"]
+checksum = "sha256:fe67d82a10d8597a3549364cb733a3f9cc1bfff9031b7ae46384a9f2a72090c3"
+checksum_source = "mise-versions"
+url = "https://github.com/EmbarkStudios/cargo-deny/releases/download/0.20.2/cargo-deny-0.20.2-aarch64-apple-darwin.tar.gz"
+url_api = "https://api.github.com/repos/EmbarkStudios/cargo-deny/releases/assets/471597689"
+
+[tools."aqua:EmbarkStudios/cargo-deny"."platforms.macos-x64"]
+checksum = "sha256:248da7f581724e470071990c088ffc55c811981715f4cbdb258621fb79f8b7a6"
+checksum_source = "mise-versions"
+url = "https://github.com/EmbarkStudios/cargo-deny/releases/download/0.20.2/cargo-deny-0.20.2-x86_64-apple-darwin.tar.gz"
+url_api = "https://api.github.com/repos/EmbarkStudios/cargo-deny/releases/assets/471598357"
+
+[tools."aqua:EmbarkStudios/cargo-deny"."platforms.windows-x64"]
+checksum = "sha256:975a22143262fd27476d19ee00c7af67978426e40e1dee94eed6bbade1cf87dc"
+checksum_source = "mise-versions"
+url = "https://github.com/EmbarkStudios/cargo-deny/releases/download/0.20.2/cargo-deny-0.20.2-x86_64-pc-windows-msvc.tar.gz"
+url_api = "https://api.github.com/repos/EmbarkStudios/cargo-deny/releases/assets/471599057"
+
 [[tools.aube]]
-version = "2.6.1"
+version = "2.10.0"
 backend = "packslip:github.com/aubepkg/aube"
 specifiers = ["2"]
 
 [tools.aube."platforms.linux-arm64"]
-checksum = "sha256:ff945fd7a68d25d87b47e45877228ad269d5a053c04522599b31c130d734f40d"
-url = "https://github.com/aubepkg/aube/releases/download/v2.6.1/aube-v2.6.1-aarch64-unknown-linux-gnu.tar.gz"
+checksum = "sha256:cce81d91e7468fc784c15b580320c5f94b4867f41e7e097c4ba23b0587937b7e"
+url = "https://github.com/aubepkg/aube/releases/download/v2.10.0/aube-v2.10.0-aarch64-unknown-linux-gnu.tar.gz"
 signer = "sigstore-oidc:https://github.com/aubepkg/aube/.github/workflows/release.yml"
 repository_ids = { repository = "1214542327" }
 
 [tools.aube."platforms.linux-arm64-musl"]
-checksum = "sha256:521b5cb38cf6c07c1a43a6bce2d3c34c603a26b47a05ff8b5f6112cdadf18996"
-url = "https://github.com/aubepkg/aube/releases/download/v2.6.1/aube-v2.6.1-aarch64-unknown-linux-musl.tar.gz"
+checksum = "sha256:7541658766b989fbb6560c34275b473d7fb96a5d97d21d639e5df7089c1573a5"
+url = "https://github.com/aubepkg/aube/releases/download/v2.10.0/aube-v2.10.0-aarch64-unknown-linux-musl.tar.gz"
 signer = "sigstore-oidc:https://github.com/aubepkg/aube/.github/workflows/release.yml"
 repository_ids = { repository = "1214542327" }
 
 [tools.aube."platforms.linux-x64"]
-checksum = "sha256:364b4cf201970cd5c943390dd3e736b4256b14a0ac52d304f8fb4acfd6a1fbd3"
-url = "https://github.com/aubepkg/aube/releases/download/v2.6.1/aube-v2.6.1-x86_64-unknown-linux-gnu.tar.gz"
+checksum = "sha256:50d76d216495a9fe28f6cc9817d02f6c080c9c483c9f8c6b29a901bd073488ff"
+url = "https://github.com/aubepkg/aube/releases/download/v2.10.0/aube-v2.10.0-x86_64-unknown-linux-gnu.tar.gz"
 signer = "sigstore-oidc:https://github.com/aubepkg/aube/.github/workflows/release.yml"
 repository_ids = { repository = "1214542327" }
 
 [tools.aube."platforms.linux-x64-musl"]
-checksum = "sha256:d69ab74a5e21f4dcaf5a41899a623114d6df77c11a170089ade86348bbc2b234"
-url = "https://github.com/aubepkg/aube/releases/download/v2.6.1/aube-v2.6.1-x86_64-unknown-linux-musl.tar.gz"
+checksum = "sha256:51c88c48f784aa82ca6f9e2ced73aa9c51e5482a5be0e1670b88cc59769fe2eb"
+url = "https://github.com/aubepkg/aube/releases/download/v2.10.0/aube-v2.10.0-x86_64-unknown-linux-musl.tar.gz"
 signer = "sigstore-oidc:https://github.com/aubepkg/aube/.github/workflows/release.yml"
 repository_ids = { repository = "1214542327" }
 
 [tools.aube."platforms.macos-arm64"]
-checksum = "sha256:a36856db187dd8f2c3cbf651de1384a2d0748d7cc5507671e6ec02751f00c032"
-url = "https://github.com/aubepkg/aube/releases/download/v2.6.1/aube-v2.6.1-aarch64-apple-darwin.tar.gz"
+checksum = "sha256:8b403713af1ee52da4a3d9cdbb9f0e3dbdd1247465b49841c4fefd8e2f1bc83f"
+url = "https://github.com/aubepkg/aube/releases/download/v2.10.0/aube-v2.10.0-aarch64-apple-darwin.tar.gz"
 signer = "sigstore-oidc:https://github.com/aubepkg/aube/.github/workflows/release.yml"
 repository_ids = { repository = "1214542327" }
 
 [tools.aube."platforms.windows-x64"]
-checksum = "sha256:f6399466cc0e0c2f52248b56477182d4857a8a02d518936b055a3a67f0f25f87"
-url = "https://github.com/aubepkg/aube/releases/download/v2.6.1/aube-v2.6.1-x86_64-pc-windows-msvc.zip"
+checksum = "sha256:ff01fc4175d30dc2be40f6145d00decef126a939de0b89522b1178e8cec97c51"
+url = "https://github.com/aubepkg/aube/releases/download/v2.10.0/aube-v2.10.0-x86_64-pc-windows-msvc.zip"
 signer = "sigstore-oidc:https://github.com/aubepkg/aube/.github/workflows/release.yml"
 repository_ids = { repository = "1214542327" }
 
@@ -124,9 +171,9 @@ checksum = "sha256:dcc60d59a0746999f99064a01c020445d54d84228c691cdbf25b49ac3b591
 url = "https://nodejs.org/dist/v26.13.0/node-v26.13.0-win-x64.zip"
 
 [[tools.rust]]
-version = "1.98.1"
+version = "1.99.1"
 backend = "core:rust"
-specifiers = ["1.98"]
+specifiers = ["1.99"]
 
 [tools.rust.options]
 components = "clippy,rustfmt"
@@ -179,34 +226,34 @@ url = "https://github.com/koalaman/shellcheck/releases/download/v0.11.0/shellche
 url_api = "https://api.github.com/repos/koalaman/shellcheck/releases/assets/279056944"
 
 [[tools.zig]]
-version = "0.14.1"
+version = "0.17.1"
 backend = "core:zig"
-specifiers = ["0.14"]
+specifiers = ["0.17"]
 
 [tools.zig."platforms.linux-arm64"]
-checksum = "sha256:f7a654acc967864f7a050ddacfaa778c7504a0eca8d2b678839c21eea47c992b"
-url = "https://ziglang.org/download/0.14.1/zig-aarch64-linux-0.14.1.tar.xz"
+checksum = "sha256:a1546d5646eb184437918d6635ca6b762a0e889eac09cef720ee7a1ed3fe7795"
+url = "https://ziglang.org/download/0.17.1/zig-aarch64-linux-0.17.1.tar.xz"
 
 [tools.zig."platforms.linux-arm64-musl"]
-checksum = "sha256:f7a654acc967864f7a050ddacfaa778c7504a0eca8d2b678839c21eea47c992b"
-url = "https://ziglang.org/download/0.14.1/zig-aarch64-linux-0.14.1.tar.xz"
+checksum = "sha256:a1546d5646eb184437918d6635ca6b762a0e889eac09cef720ee7a1ed3fe7795"
+url = "https://ziglang.org/download/0.17.1/zig-aarch64-linux-0.17.1.tar.xz"
 
 [tools.zig."platforms.linux-x64"]
-checksum = "sha256:24aeeec8af16c381934a6cd7d95c807a8cb2cf7df9fa40d359aa884195c4716c"
-url = "https://ziglang.org/download/0.14.1/zig-x86_64-linux-0.14.1.tar.xz"
+checksum = "sha256:3581863e3cbcfd0fce0efc682ce7e9e93da96668a977791d356a26d2a7e9b17a"
+url = "https://ziglang.org/download/0.17.1/zig-x86_64-linux-0.17.1.tar.xz"
 
 [tools.zig."platforms.linux-x64-musl"]
-checksum = "sha256:24aeeec8af16c381934a6cd7d95c807a8cb2cf7df9fa40d359aa884195c4716c"
-url = "https://ziglang.org/download/0.14.1/zig-x86_64-linux-0.14.1.tar.xz"
+checksum = "sha256:3581863e3cbcfd0fce0efc682ce7e9e93da96668a977791d356a26d2a7e9b17a"
+url = "https://ziglang.org/download/0.17.1/zig-x86_64-linux-0.17.1.tar.xz"
 
 [tools.zig."platforms.macos-arm64"]
-checksum = "sha256:39f3dc5e79c22088ce878edc821dedb4ca5a1cd9f5ef915e9b3cc3053e8faefa"
-url = "https://ziglang.org/download/0.14.1/zig-aarch64-macos-0.14.1.tar.xz"
+checksum = "sha256:75f1bc7a1e9852f17ec9a0c1895f767c4ec56d46bc8a834920eece1d0359dd8d"
+url = "https://ziglang.org/download/0.17.1/zig-aarch64-macos-0.17.1.tar.xz"
 
 [tools.zig."platforms.macos-x64"]
-checksum = "sha256:b0f8bdfb9035783db58dd6c19d7dea89892acc3814421853e5752fe4573e5f43"
-url = "https://ziglang.org/download/0.14.1/zig-x86_64-macos-0.14.1.tar.xz"
+checksum = "sha256:9af07b20319fbd0c92ee46ad23e81d6a782b1aaea2cfb8dcbff35f1d2c7ddbb7"
+url = "https://ziglang.org/download/0.17.1/zig-x86_64-macos-0.17.1.tar.xz"
 
 [tools.zig."platforms.windows-x64"]
-checksum = "sha256:554f5378228923ffd558eac35e21af020c73789d87afeabf4bfd16f2e6feed2c"
-url = "https://ziglang.org/download/0.14.1/zig-x86_64-windows-0.14.1.zip"
+checksum = "sha256:b03f477a1943673e02aca0f570e8030dffd536ce1f45cbc4d3326ec31159562e"
+url = "https://ziglang.org/download/0.17.1/zig-x86_64-windows-0.17.1.zip"

@@ -1,0 +1,30 @@
+{
+    "version": "@VERSION@",
+    "description": "Multi-connection download manager with browser extension and yt-dlp video support",
+    "homepage": "https://github.com/arafays/hurtle",
+    "license": "MIT",
+    "architecture": {
+        "64bit": {
+            "url": "https://github.com/arafays/hurtle/releases/download/v@VERSION@/hurtle-@VERSION@-windows-x86_64.zip",
+            "hash": "@SHA_WINDOWS@"
+        }
+    },
+    "extract_dir": "hurtle-@VERSION@-windows-x86_64",
+    "bin": "hurtle-cli.exe",
+    "shortcuts": [["hurtle.exe", "Hurtle"]],
+    "post_install": "& \"$dir\\hurtle-host.exe\" --register | Out-Null",
+    "pre_uninstall": "& \"$dir\\hurtle-host.exe\" --unregister | Out-Null",
+    "checkver": "github",
+    "autoupdate": {
+        "architecture": {
+            "64bit": {
+                "url": "https://github.com/arafays/hurtle/releases/download/v$version/hurtle-$version-windows-x86_64.zip",
+                "hash": {
+                    "url": "https://github.com/arafays/hurtle/releases/download/v$version/SHA256SUMS.txt",
+                    "regex": "$sha256\\s+\\*?$basename"
+                }
+            }
+        },
+        "extract_dir": "hurtle-$version-windows-x86_64"
+    }
+}

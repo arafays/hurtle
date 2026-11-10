@@ -1,0 +1,22 @@
+pkgbase = hurtle-bin
+	pkgdesc = Multi-connection download manager with browser extension and yt-dlp video support
+	pkgver = 0.2.2
+	pkgrel = 1
+	url = https://github.com/arafays/hurtle
+	arch = x86_64
+	arch = aarch64
+	license = MIT
+	depends = glibc
+	depends = libxkbcommon
+	depends = vulkan-icd-loader
+	optdepends = yt-dlp: video sites and HLS/DASH streams
+	optdepends = ffmpeg: merging video and audio streams
+	optdepends = deno: YouTube extraction
+	provides = hurtle
+	conflicts = hurtle
+	source_x86_64 = hurtle-0.2.2-linux-x86_64.tar.gz::https://github.com/arafays/hurtle/releases/download/v0.2.2/hurtle-0.2.2-linux-x86_64.tar.gz
+	sha256sums_x86_64 = SKIP
+	source_aarch64 = hurtle-0.2.2-linux-aarch64.tar.gz::https://github.com/arafays/hurtle/releases/download/v0.2.2/hurtle-0.2.2-linux-aarch64.tar.gz
+	sha256sums_aarch64 = SKIP
+
+pkgname = hurtle-bin

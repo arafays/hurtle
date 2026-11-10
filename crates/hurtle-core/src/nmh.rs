@@ -258,6 +258,21 @@ pub fn registered_host() -> Option<PathBuf> {
         .iter()
         .map(|f| manifest_dir().join(f))
         .collect();
+    // A package (the .deb) installs system-wide manifests; those count too.
+    #[cfg(target_os = "linux")]
+    let manifests = {
+        let mut m = manifests;
+        let file = format!("{HOST_NAME}.json");
+        for d in [
+            "/etc/opt/chrome",
+            "/etc/chromium",
+            "/etc/opt/edge",
+            "/usr/lib/mozilla",
+        ] {
+            m.push(Path::new(d).join("native-messaging-hosts").join(&file));
+        }
+        m
+    };
     manifests.iter().find_map(|m| {
         let v: serde_json::Value = serde_json::from_slice(&std::fs::read(m).ok()?).ok()?;
         let p = PathBuf::from(v["path"].as_str()?);

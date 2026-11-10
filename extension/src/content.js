@@ -28,7 +28,11 @@
       .item:hover:not([disabled]) { background: rgba(3, 105, 161, .85); }
       .note { padding: 6px 8px; font-size: 12px; opacity: .8; }
       .head { padding: 4px 8px 2px; font-size: 10px; letter-spacing: .05em; text-transform: uppercase; opacity: .6; }
-      .x { float: right; opacity: .6; margin-left: 8px; }
+      .bar { display: flex; align-items: stretch; gap: 4px; }
+      button.x { padding: 6px 8px; border: 0; border-radius: 8px; background: rgba(17, 24, 39, .92); color: inherit;
+        font: inherit; opacity: .7; cursor: pointer; box-shadow: 0 2px 10px rgba(0,0,0,.35); }
+      button.x:hover { opacity: 1; background: #0369a1; }
+      button:focus-visible { outline: 2px solid #38bdf8; outline-offset: 1px; }
       .count { padding: 0 6px; border-radius: 999px; background: #0284c7; color: #fff; font-size: 11px; font-weight: 600; line-height: 17px; }
       button.main:hover .count:not(.busy) { background: #fff; color: #0369a1; }
       .count.busy { background: rgba(255,255,255,.18); font-weight: 400; }
@@ -38,14 +42,16 @@
       .caret { font-size: 11px; opacity: .85; margin-left: -2px; }
     </style>
     <div class="wrap">
-      <button class="main" title="Download with Hurtle">
+      <div class="bar">
+      <button class="main" title="Download with Hurtle" aria-haspopup="menu" aria-expanded="false">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"
           stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v12M6 11l6 6 6-6M5 20h14"/></svg>
         <span class="label">Download video</span>
         <span class="count" hidden></span>
         <span class="caret" aria-hidden="true" hidden>▾</span>
-        <span class="x" title="Hide on this page (bring it back from the Hurtle toolbar button)">✕</span>
       </button>
+      <button type="button" class="x" aria-label="Hide on this page" title="Hide on this page (bring it back from the Hurtle toolbar button)">✕</button>
+      </div>
       <div class="menu" hidden></div>
     </div>`;
   const shared = document.createElement("style");
@@ -56,6 +62,21 @@
   const menu = root.querySelector(".menu");
   const count = root.querySelector(".count");
   const caret = root.querySelector(".caret");
+  menu.setAttribute("role", "menu");
+  new MutationObserver(() => {
+    button.setAttribute("aria-expanded", String(!menu.hidden));
+    if (!menu.hidden) for (const i of menu.querySelectorAll("button.item")) i.setAttribute("role", "menuitem");
+  }).observe(menu, { attributes: true, attributeFilter: ["hidden"] });
+  // Escape closes the menu and gives focus back to the button.
+  root.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && !menu.hidden) {
+      e.stopPropagation();
+      menu.hidden = true;
+      onSizes = null;
+      button.focus();
+      place();
+    }
+  });
 
   let target = null; // the media element the button belongs to
   let hideTimer = 0;
@@ -239,13 +260,16 @@
     return list.sort((a, b) => rank(a) - rank(b) || (b.size || 0) - (a.size || 0));
   }
 
+  close.addEventListener("click", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dismissed = true;
+    hide();
+  });
+
   button.addEventListener("click", async (e) => {
     e.preventDefault();
     e.stopPropagation();
-    if (e.composedPath().includes(close)) {
-      dismissed = true;
-      return hide();
-    }
     if (!menu.hidden) {
       menu.hidden = true;
       onSizes = null;
@@ -311,6 +335,7 @@
       });
       menu.append(r.el);
     }
+    for (const i of menu.querySelectorAll("button.item")) i.setAttribute("role", "menuitem");
     const off = document.createElement("button");
     off.type = "button";
     off.className = "off";

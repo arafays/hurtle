@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Package a release build for one target into dist/:
-#   Linux    hurtle-<ver>-linux-x86_64.tar.gz    (hurtle, hurtle-host, hurtle-cli)
+#   Linux    hurtle-<ver>-linux-x86_64.tar.gz    (hurtle, hurtle-host, hurtle-cli, hurtle.desktop, install.sh)
 #   Windows  hurtle-<ver>-windows-x86_64.zip     (hurtle.exe, hurtle-host.exe, hurtle-cli.exe)
 #   macOS    hurtle-<ver>-macos-<arch>.zip       (Hurtle.app, the host inside it)
 #
@@ -10,8 +10,8 @@ set -euo pipefail
 root=$(cd "$(dirname "$0")/.." && pwd)
 target=${1:?usage: package.sh <target-triple>}
 version=$(sed -n 's/^version = "\(.*\)"/\1/p' "$root/Cargo.toml" | head -1)
-bin=$root/target/$target/release
-out=$root/dist
+bin=${BIN_DIR:-$root/target/$target/release}
+out=${OUT_DIR:-$root/dist}
 mkdir -p "$out"
 stage=$(mktemp -d)
 trap 'rm -rf "$stage"' EXIT
@@ -55,7 +55,11 @@ case $os in
     mkdir "$stage/$name"
     for b in hurtle hurtle-host hurtle-cli; do install -m 755 "$bin/$b" "$stage/$name/$b"; done
     install -m 644 "$root/extension/src/icons/icon-128.png" "$stage/$name/hurtle.png"
+    install -m 644 "$root/packaging/linux/hurtle.desktop" "$stage/$name/hurtle.desktop"
+    install -m 644 "$root/LICENSE" "$stage/$name/LICENSE"
+    install -m 755 "$root/packaging/linux/install.sh" "$stage/$name/install.sh"
     readme > "$stage/$name/README.txt"
+    printf '\n4. Optional: ./install.sh puts Hurtle in ~/.local (launcher entry, icon, browser host);\n   ./install.sh --uninstall removes it.\n' >> "$stage/$name/README.txt"
     tar -C "$stage" -czf "$out/$name.tar.gz" "$name"
     echo "$out/$name.tar.gz"
     ;;

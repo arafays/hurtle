@@ -1,14 +1,14 @@
 # Tooling: mise (https://mise.jdx.dev) pins the toolchain, aube (https://aube.sh)
 # manages the extension's JS dev dependencies. Everything runs as `mise run <task>`.
 
-min_version = "2026.9.16"
+min_version = "2026.11.4"
 
 [settings]
 # Fail rather than resolve a tool that mise.lock doesn't pin (CI sets MISE_LOCKED=1 too).
 lockfile = true
 
 [tools]
-rust = { version = "1.98", components = "rustfmt,clippy" }
+rust = { version = "1.99", components = "rustfmt,clippy" }
 node = "26"
 aube = { version = "2", minimum_release_age = "0s" }
 shellcheck = "0.11"
@@ -53,7 +53,7 @@ run = [
 
 [tasks."check:cross"]
 description = "Type-check Windows (all crates) and macOS (core/host/cli) from Linux with zig as C compiler"
-tools = { zig = "0.14" }
+tools = { zig = "0.17" }
 run = "scripts/cross-check.sh"
 
 [tasks.serve]
@@ -107,7 +107,7 @@ run = "scripts/amo-signed.py"
 
 [tasks."ci:shellcheck"]
 description = "shellcheck every script"
-run = "shellcheck scripts/*.sh extension/build.sh"
+run = "shellcheck scripts/*.sh extension/build.sh docs/install.sh packaging/linux/install.sh"
 
 [tasks.package]
 description = "Release build for this machine + dist/ archive (what CI publishes)"
@@ -119,9 +119,34 @@ cargo build --release --locked --target "$target" -p hurtle-app -p hurtle-host -
 scripts/package.sh "$target"
 """
 
+[tasks."package:deb"]
+description = "Build dist/hurtle_<ver>_<arch>.deb for this machine (after `mise run package`)"
+run = """
+#!/usr/bin/env bash
+set -euo pipefail
+scripts/package-deb.sh "$(rustc -vV | sed -n 's/^host: //p')"
+"""
+
+[tasks."package:dmg"]
+description = "Build the .dmg from the macOS zip (macOS only, after `mise run package`)"
+run = """
+#!/usr/bin/env bash
+set -euo pipefail
+scripts/package-dmg.sh "$(rustc -vV | sed -n 's/^host: //p')"
+"""
+
+[tasks.manifests]
+description = "Fill the scoop/winget/Homebrew manifests: mise run manifests <version> [dist/SHA256SUMS.txt]"
+run = "scripts/update-manifests.sh {{arg(name='version')}} {{arg(name='sums', default='dist/SHA256SUMS.txt')}}"
+
 [tasks."ci:lint"]
 description = "Lint the GitHub workflows"
 run = "actionlint"
+
+[tasks."ci:deny"]
+description = "cargo-deny: advisories, licenses, bans, sources (see deny.toml)"
+tools = { "aqua:EmbarkStudios/cargo-deny" = "0.20" }
+run = "cargo deny --locked check"
 
 [tasks."ext:e2e"]
 description = "Headless Chromium end-to-end test of extension + host + app"

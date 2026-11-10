@@ -73,6 +73,10 @@ h2 { margin: 14px 0 4px; font-size: 11px; font-weight: 600; text-transform: uppe
 .empty.center { text-align: center; padding: 14px 0; }
 .notice { margin: 8px 0; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--border); background: var(--card); color: var(--muted); font-size: 12px; }
 .notice button { margin-top: 6px; }
+#setup { max-height: 220px; margin: 8px 14px; line-height: 1.5; }
+#setup strong { color: var(--fg); }
+#setup ol { margin: 4px 0 6px; padding-left: 18px; }
+#setup code { font-size: 11px; overflow-wrap: anywhere; user-select: all; }
 .status { min-height: 1.4em; margin: 6px 0; font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
 .status.bad { color: var(--bad); }
 
