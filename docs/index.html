@@ -95,13 +95,26 @@ code { background: var(--panel); padding: .15em .45em; border-radius: 5px; color
 .hero-grid > .race { grid-area: race; }
 .hero-grid > .rest { grid-area: rest; align-self: start; }
 @media (max-width: 1080px) {
-  .hero-grid { grid-template-columns: 1fr; grid-template-areas: "h" "race" "rest"; row-gap: 28px; }
+  .hero-grid { grid-template-columns: minmax(0, 1fr); grid-template-areas: "h" "rest" "race"; row-gap: 28px; }
   .hero-grid > .rest .lede { margin-top: 0; }
 }
 .hero h1 { margin: 0; max-width: 14ch; font-size: clamp(40px, 5.2vw, 70px); line-height: .98; font-weight: 800; font-stretch: 118%; letter-spacing: -0.03em; color: var(--fg-strong); text-wrap: balance; }
 .hero .lede { margin: 24px 0 0; max-width: 56ch; font-size: clamp(17px, 1.6vw, 20px); color: var(--muted); }
 .hero .cta { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 32px; }
 .hero .os-note { margin-top: 14px; font-size: 14px; color: var(--dim); }
+.term { margin-top: 18px; max-width: 560px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg-deep); overflow: hidden; }
+.term-tabs { display: flex; align-items: center; gap: 4px; padding: 6px 6px 0; border-bottom: 1px solid var(--line); background: var(--panel); }
+.term-tabs button { font: 500 13.5px var(--sans); color: var(--dim); background: transparent; border: 0; border-bottom: 2px solid transparent; padding: 6px 10px 8px; cursor: pointer; }
+.term-tabs button:hover { color: var(--fg-strong); }
+.term-tabs button[aria-pressed="true"] { color: var(--fg-strong); border-bottom-color: var(--accent); }
+.term-hint { margin-left: auto; padding: 0 8px 6px; font-size: 12.5px; color: var(--dim); }
+@media (max-width: 480px) { .term-hint { display: none; } }
+.term-line { display: flex; align-items: center; gap: 10px; padding: 10px 10px 10px 14px; }
+.term-line code { flex: 1; min-width: 0; background: none; padding: 0; font-size: 13.5px; white-space: nowrap; overflow-x: auto; scrollbar-width: none; }
+.term-line code::before { content: "$ "; color: var(--dim); }
+.copy { flex: none; font: 500 13px var(--sans); color: var(--fg-strong); background: var(--panel); border: 1px solid var(--line); border-radius: 6px; height: 30px; padding: 0 12px; cursor: pointer; }
+.copy:hover { border-color: var(--dim); }
+.copy.ok { color: var(--green); border-color: var(--green); }
 
 /* race: drawn like the app's rows */
 .race { margin-top: 0; background: var(--bg-deep); border: 1px solid var(--line); border-radius: 14px; box-shadow: 0 30px 60px -30px rgba(0,0,0,.7), 0 2px 6px rgba(0,0,0,.3); overflow: hidden; }
@@ -176,7 +189,9 @@ h3 { margin: 0 0 8px; font-size: 19px; font-weight: 680; color: var(--fg-strong)
 .theme-stage img { transition: opacity .35s ease-out; }
 
 /* download */
-.dl-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 14px; margin-top: 40px; }
+.dl-section { background: var(--bg-deep); border-top: 1px solid var(--line); }
+.dl-section .dl { background: var(--panel); }
+.dl-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 14px; margin-top: 32px; }
 .dl { display: flex; flex-direction: column; gap: 6px; padding: 20px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); text-decoration: none; color: var(--fg); transition: border-color .15s, background .15s; }
 .dl:hover { border-color: var(--accent); background: var(--panel-2); color: var(--fg); }
 .dl.mine { order: -1; border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
@@ -193,6 +208,7 @@ h3 { margin: 0 0 8px; font-size: 19px; font-weight: 680; color: var(--fg-strong)
 .quick pre { margin-top: 0; }
 .quick p, .other li, .first { color: var(--muted); font-size: 15px; margin: 10px 0 0; }
 .sub { margin: 48px 0 0; font-size: 17px; }
+.first-sub { margin-top: 8px; }
 .other { margin: 12px 0 0; padding-left: 18px; }
 .other li + li { margin-top: 6px; }
 .first { max-width: 80ch; }
@@ -222,15 +238,15 @@ footer a { color: var(--muted); }
 #lane1 .t::after { content: "48.2 s"; }
 #lane8 .t::after { content: "6.6 s"; }
 </style></noscript>
-<a class="skip" href="#how">Skip to content</a>
+<a class="skip" href="#download">Skip to content</a>
 <header class="top" id="top">
   <div class="wrap">
     <a class="brand" href="#"><img src="assets/icon.svg" alt="" width="28" height="28">Hurtle</a>
     <nav aria-label="Main">
+      <a href="#download">Download</a>
       <a href="#how">How it works</a>
       <a href="#browser">Browser</a>
       <a href="#video">Video sites</a>
-      <a href="#download">Download</a>
       <a class="gh" href="https://github.com/arafays/hurtle">GitHub</a>
     </nav>
   </div>
@@ -277,14 +293,81 @@ footer a { color: var(--muted); }
     <div class="cta">
       <a class="btn btn-primary" href="#download" id="cta-main">
         <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 3v10M5.5 8.5 10 13l4.5-4.5M4 17h12"/></svg>
-        <span>Get Hurtle</span>
+        <span>Download Hurtle</span>
       </a>
-      <a class="btn btn-ghost" href="https://github.com/arafays/hurtle">Source on GitHub</a>
+      <a class="btn btn-ghost" href="#download">All downloads</a>
     </div>
-    <p class="os-note" id="os-note">Windows · macOS · Linux · Chrome, Brave, Edge, Firefox, Zen</p>
+    <div class="term" id="term">
+      <div class="term-tabs" role="group" aria-label="Install command for">
+        <button type="button" aria-pressed="true" data-cmd="curl -fsSL https://arafays.github.io/hurtle/install.sh | sh">Linux · macOS</button>
+        <button type="button" aria-pressed="false" data-cmd="irm https://arafays.github.io/hurtle/install.ps1 | iex">Windows</button>
+        <span class="term-hint">or paste into a terminal</span>
+      </div>
+      <div class="term-line"><code id="term-cmd">curl -fsSL https://arafays.github.io/hurtle/install.sh | sh</code><button type="button" class="copy" id="copy">Copy</button></div>
+    </div>
+    <p class="os-note" id="os-note">Free and open source · Windows · macOS · Linux · Chrome, Brave, Edge, Firefox, Zen</p>
     </div>
   </div>
 </div>
+
+<section id="download" class="dl-section">
+  <div class="wrap">
+    <h2>Get Hurtle</h2>
+    <p class="intro">Install the app, then add the extension to your browser. The first time the app runs, it registers itself with every Chrome-family browser and Firefox it finds.</p>
+    <div class="dl-grid" id="dl-grid">
+      <a class="dl" data-os="windows" data-match="windows-x86_64-setup\.exe$" data-fallback="windows-x86_64\.zip$" href="https://github.com/arafays/hurtle/releases/latest">
+        <span class="os"><b>Windows</b></span><span class="file">hurtle-…-windows-x86_64-setup.exe</span>
+        <span class="how">Run the installer (per user, no admin rights). The <code>.zip</code> on the release page is the portable build.</span>
+        <span class="get"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 3v10M5.5 8.5 10 13l4.5-4.5M4 17h12"/></svg><span class="lbl">Download</span></span>
+      </a>
+      <a class="dl" data-os="mac-arm" data-match="macos-aarch64\.dmg$" data-fallback="macos-aarch64\.zip$" href="https://github.com/arafays/hurtle/releases/latest">
+        <span class="os"><b>macOS, Apple silicon</b></span><span class="file">hurtle-…-macos-aarch64.dmg</span>
+        <span class="how">Drag <code>Hurtle.app</code> to Applications and open it.</span>
+        <span class="get"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 3v10M5.5 8.5 10 13l4.5-4.5M4 17h12"/></svg><span class="lbl">Download</span></span>
+      </a>
+      <a class="dl" data-os="mac-intel" data-match="macos-x86_64\.dmg$" data-fallback="macos-x86_64\.zip$" href="https://github.com/arafays/hurtle/releases/latest">
+        <span class="os"><b>macOS, Intel</b></span><span class="file">hurtle-…-macos-x86_64.dmg</span>
+        <span class="how">Same as Apple silicon.</span>
+        <span class="get"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 3v10M5.5 8.5 10 13l4.5-4.5M4 17h12"/></svg><span class="lbl">Download</span></span>
+      </a>
+      <a class="dl" data-os="linux" data-match="linux-x86_64\.tar\.gz$" href="https://github.com/arafays/hurtle/releases/latest">
+        <span class="os"><b>Linux, x86‑64</b></span><span class="file">hurtle-…-linux-x86_64.tar.gz</span>
+        <span class="how">Extract and run <code>./install.sh</code>, or just <code>./hurtle</code>. Includes a tray icon.</span>
+        <span class="get"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 3v10M5.5 8.5 10 13l4.5-4.5M4 17h12"/></svg><span class="lbl">Download</span></span>
+      </a>
+      <a class="dl" data-os="linux-arm" data-match="linux-aarch64\.tar\.gz$" href="https://github.com/arafays/hurtle/releases/latest">
+        <span class="os"><b>Linux, ARM64</b></span><span class="file">hurtle-…-linux-aarch64.tar.gz</span>
+        <span class="how">Same as x86‑64.</span>
+        <span class="get"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 3v10M5.5 8.5 10 13l4.5-4.5M4 17h12"/></svg><span class="lbl">Download</span></span>
+      </a>
+      <a class="dl" data-os="ext-chrome" data-match="^hurtle-chrome-.*\.zip$" href="https://github.com/arafays/hurtle/releases/latest">
+        <span class="os"><b>Chrome, Brave, Edge extension</b></span><span class="file">hurtle-chrome-….zip</span>
+        <span class="how">Unzip, open <code>chrome://extensions</code>, turn on Developer mode, then Load unpacked. Keep the unzipped folder where it is: the browser loads it from there. Not on the Chrome Web Store.</span>
+        <span class="get"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 3v10M5.5 8.5 10 13l4.5-4.5M4 17h12"/></svg><span class="lbl">Download</span></span>
+      </a>
+      <a class="dl" data-os="ext-firefox" data-match="^hurtle-firefox-.*\.xpi$" href="https://github.com/arafays/hurtle/releases/latest">
+        <span class="os"><b>Firefox, Zen, LibreWolf add-on</b></span><span class="file">hurtle-firefox-….xpi</span>
+        <span class="how">Signed by Mozilla. Needs Firefox 142 or newer. Open the file and confirm the install. It updates itself after that.</span>
+        <span class="get"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 3v10M5.5 8.5 10 13l4.5-4.5M4 17h12"/></svg><span class="lbl">Download</span></span>
+      </a>
+    </div>
+    <p class="dl-meta" id="dl-meta">All files and SHA-256 checksums are on the <a href="https://github.com/arafays/hurtle/releases">releases page</a>.</p>
+    <h3 class="sub">Or install from a terminal</h3>
+    <div class="quick">
+      <div>
+        <h3>Linux and macOS</h3>
+        <pre>curl -fsSL https://arafays.github.io/hurtle/install.sh | sh</pre>
+        <p>Installs without sudo, into <code>~/.local</code> on Linux, or <code>/Applications</code> on macOS (<code>~/Applications</code> if that is not writable; override with <code>HURTLE_APPDIR</code>). It checks the download against the release's SHA-256 sums and registers the browser host. Remove it with the same command plus <code>sh -s -- --uninstall</code>.</p>
+      </div>
+      <div>
+        <h3>Windows (PowerShell)</h3>
+        <pre>irm https://arafays.github.io/hurtle/install.ps1 | iex</pre>
+        <p>Per user, no admin rights, checksum verified. Prefer a wizard? Use the setup.exe above. Remove it with <code>& ([scriptblock]::Create((irm https://arafays.github.io/hurtle/install.ps1))) -Uninstall</code>.</p>
+      </div>
+    </div>
+    <p class="first" id="first-launch"><strong>First launch.</strong> Windows builds are unsigned, so SmartScreen may say &ldquo;Windows protected your PC&rdquo;: choose More info, then Run anyway. macOS builds are not notarized: if macOS blocks the app or calls it damaged, run <code>xattr -dr com.apple.quarantine /Applications/Hurtle.app</code>, or use System Settings &rarr; Privacy &amp; Security &rarr; Open Anyway.</p>
+  </div>
+</section>
 
 <section id="how">
   <div class="wrap split">
@@ -364,71 +447,15 @@ footer a { color: var(--muted); }
   </div>
 </section>
 
-<section id="download">
+<section id="more">
   <div class="wrap">
-    <h2>Get Hurtle</h2>
-    <p class="intro">Install the app, then add the extension to your browser. The first time the app runs, it registers itself with every Chrome-family browser and Firefox it finds.</p>
-    <div class="quick">
-      <div>
-        <h3>Linux and macOS</h3>
-        <pre>curl -fsSL https://arafays.github.io/hurtle/install.sh | sh</pre>
-        <p>Installs without sudo, into <code>~/.local</code> on Linux, or <code>/Applications</code> on macOS (<code>~/Applications</code> if that is not writable; override with <code>HURTLE_APPDIR</code>). It checks the download against the release's SHA-256 sums and registers the browser host. Remove it with the same command plus <code>sh -s -- --uninstall</code>. (On Windows, use the PowerShell command on the right.)</p>
-      </div>
-      <div>
-        <h3>Windows (PowerShell)</h3>
-        <pre>irm https://arafays.github.io/hurtle/install.ps1 | iex</pre>
-        <p>Per user, no admin rights, checksum verified. Prefer a wizard? Use the setup.exe below. Remove it with <code>& ([scriptblock]::Create((irm https://arafays.github.io/hurtle/install.ps1))) -Uninstall</code>.</p>
-      </div>
-    </div>
-
-    <h3 class="sub">Or download a file</h3>
-    <div class="dl-grid" id="dl-grid">
-      <a class="dl" data-os="windows" data-match="windows-x86_64-setup\.exe$" data-fallback="windows-x86_64\.zip$" href="https://github.com/arafays/hurtle/releases/latest">
-        <span class="os"><b>Windows</b></span><span class="file">hurtle-…-windows-x86_64-setup.exe</span>
-        <span class="how">Run the installer (per user, no admin rights). The <code>.zip</code> on the release page is the portable build.</span>
-        <span class="get"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 3v10M5.5 8.5 10 13l4.5-4.5M4 17h12"/></svg><span class="lbl">Download</span></span>
-      </a>
-      <a class="dl" data-os="mac-arm" data-match="macos-aarch64\.dmg$" data-fallback="macos-aarch64\.zip$" href="https://github.com/arafays/hurtle/releases/latest">
-        <span class="os"><b>macOS, Apple silicon</b></span><span class="file">hurtle-…-macos-aarch64.dmg</span>
-        <span class="how">Drag <code>Hurtle.app</code> to Applications and open it.</span>
-        <span class="get"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 3v10M5.5 8.5 10 13l4.5-4.5M4 17h12"/></svg><span class="lbl">Download</span></span>
-      </a>
-      <a class="dl" data-os="mac-intel" data-match="macos-x86_64\.dmg$" data-fallback="macos-x86_64\.zip$" href="https://github.com/arafays/hurtle/releases/latest">
-        <span class="os"><b>macOS, Intel</b></span><span class="file">hurtle-…-macos-x86_64.dmg</span>
-        <span class="how">Same as Apple silicon.</span>
-        <span class="get"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 3v10M5.5 8.5 10 13l4.5-4.5M4 17h12"/></svg><span class="lbl">Download</span></span>
-      </a>
-      <a class="dl" data-os="linux" data-match="linux-x86_64\.tar\.gz$" href="https://github.com/arafays/hurtle/releases/latest">
-        <span class="os"><b>Linux, x86‑64</b></span><span class="file">hurtle-…-linux-x86_64.tar.gz</span>
-        <span class="how">Extract and run <code>./install.sh</code>, or just <code>./hurtle</code>. Includes a tray icon.</span>
-        <span class="get"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 3v10M5.5 8.5 10 13l4.5-4.5M4 17h12"/></svg><span class="lbl">Download</span></span>
-      </a>
-      <a class="dl" data-os="linux-arm" data-match="linux-aarch64\.tar\.gz$" href="https://github.com/arafays/hurtle/releases/latest">
-        <span class="os"><b>Linux, ARM64</b></span><span class="file">hurtle-…-linux-aarch64.tar.gz</span>
-        <span class="how">Same as x86‑64.</span>
-        <span class="get"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 3v10M5.5 8.5 10 13l4.5-4.5M4 17h12"/></svg><span class="lbl">Download</span></span>
-      </a>
-      <a class="dl" data-os="ext-chrome" data-match="^hurtle-chrome-.*\.zip$" href="https://github.com/arafays/hurtle/releases/latest">
-        <span class="os"><b>Chrome, Brave, Edge extension</b></span><span class="file">hurtle-chrome-….zip</span>
-        <span class="how">Unzip, open <code>chrome://extensions</code>, turn on Developer mode, then Load unpacked. Keep the unzipped folder where it is: the browser loads it from there. Not on the Chrome Web Store.</span>
-        <span class="get"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 3v10M5.5 8.5 10 13l4.5-4.5M4 17h12"/></svg><span class="lbl">Download</span></span>
-      </a>
-      <a class="dl" data-os="ext-firefox" data-match="^hurtle-firefox-.*\.xpi$" href="https://github.com/arafays/hurtle/releases/latest">
-        <span class="os"><b>Firefox, Zen, LibreWolf add-on</b></span><span class="file">hurtle-firefox-….xpi</span>
-        <span class="how">Signed by Mozilla. Needs Firefox 142 or newer. Open the file and confirm the install. It updates itself after that.</span>
-        <span class="get"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 3v10M5.5 8.5 10 13l4.5-4.5M4 17h12"/></svg><span class="lbl">Download</span></span>
-      </a>
-    </div>
-    <p class="first" id="first-launch"><strong>First launch.</strong> Windows builds are unsigned, so SmartScreen may say &ldquo;Windows protected your PC&rdquo;: choose More info, then Run anyway. macOS builds are not notarized: if macOS blocks the app or calls it damaged, run <code>xattr -dr com.apple.quarantine /Applications/Hurtle.app</code>, or use System Settings &rarr; Privacy &amp; Security &rarr; Open Anyway.</p>
-    <p class="dl-meta" id="dl-meta">All files and SHA-256 checksums are on the <a href="https://github.com/arafays/hurtle/releases">releases page</a>.</p>
-
-    <h3 class="sub">Other ways to install</h3>
+    <h2>More ways to install</h2>
+    <h3 class="sub first-sub">Packages</h3>
     <ul class="other">
       <li><b>Debian and Ubuntu:</b> download <code>hurtle_&lt;ver&gt;_amd64.deb</code> (or <code>arm64</code>) from the releases page, then <code>sudo apt install ./hurtle_*.deb</code>. It also registers the browser host for Chrome, Chromium, Edge and Firefox system-wide.</li>
       <li><b>Arch Linux:</b> a <code>hurtle-bin</code> PKGBUILD is in <a href="https://github.com/arafays/hurtle/tree/main/packaging/linux/aur">packaging/linux/aur</a>. It is not on the AUR yet, so build it with <code>makepkg -si</code>.</li>
       <li><b>Homebrew:</b> a cask file is in <a href="https://github.com/arafays/hurtle/tree/main/packaging/macos">packaging/macos</a>. It is not in a tap yet, so there is no <code>brew install</code> line to copy.</li>
     </ul>
-    <p class="dl-meta" id="new-note">The .deb, setup.exe and .dmg, and the install.sh inside the tarball, arrive with the release after 0.2.2. Until then the buttons above fall back to the .zip and .tar.gz.</p>
 
     <div class="req">
       <div>
@@ -441,7 +468,6 @@ pacman -S yt-dlp ffmpeg deno</pre>
       <div>
         <h3>Good to know</h3>
         <ul>
-          <li>macOS builds are not notarized. If macOS says the app is damaged, run <code>xattr -dr com.apple.quarantine /Applications/Hurtle.app</code>.</li>
           <li>The tray icon is Linux-only for now. On Windows and macOS, closing the window quits Hurtle, and the next browser download starts it again.</li>
           <li>Flatpak and Snap browsers can't start programs outside their sandbox. Use your distro's browser package.</li>
           <li>The Firefox add-on is signed by Mozilla but not listed on addons.mozilla.org. Firefox checks this site for new versions about once a day, and you can check now under <code>about:addons</code> → ⚙ → Check for Updates.</li>
@@ -681,8 +707,26 @@ mise run install</pre>
       card.classList.add("mine");
       card.querySelector(".os").insertAdjacentHTML("beforeend", '<span class="tag">Your system</span>');
     }
-    document.querySelector("#cta-main span").textContent = `Get Hurtle for ${label}`;
+    document.querySelector("#cta-main span").textContent = `Download for ${label}`;
   }
+
+  // ---- Hero install command: tabs pick the OS, Copy puts it on the clipboard.
+  const cmd = document.getElementById("term-cmd"), tabs = [...document.querySelectorAll(".term-tabs button")];
+  const pick = (b) => { tabs.forEach((t) => t.setAttribute("aria-pressed", String(t === b))); cmd.textContent = b.dataset.cmd; };
+  tabs.forEach((b) => b.addEventListener("click", () => pick(b)));
+  if (mine === "windows") pick(tabs[1]);
+  const copy = document.getElementById("copy");
+  copy.addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText(cmd.textContent);
+      copy.textContent = "Copied"; copy.classList.add("ok");
+      status.textContent = "Install command copied";
+    } catch {
+      getSelection().selectAllChildren(cmd);
+      copy.textContent = "Press Ctrl+C";
+    }
+    setTimeout(() => { copy.textContent = "Copy"; copy.classList.remove("ok"); }, 1600);
+  });
   fetch("https://api.github.com/repos/arafays/hurtle/releases/latest")
     .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
     .then((rel) => {
@@ -703,7 +747,9 @@ mise run install</pre>
         card.href = a.browser_download_url;
         card.querySelector(".file").textContent = `${a.name} · ${MB(a.size)} MB`;
       });
-      if (assets.some((x) => /\.deb$/.test(x.name))) document.getElementById("new-note").remove();
+      // The hero button downloads directly where one file fits this system.
+      const direct = mine === "windows" ? document.querySelector('.dl[data-os="windows"]') : null;
+      if (direct && direct.href.includes("/download/")) document.getElementById("cta-main").href = direct.href;
       const when = new Date(rel.published_at).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
       document.getElementById("dl-meta").innerHTML =
         `Version ${rel.tag_name.replace(/^v/, "")}, released ${when}. Checksums and release notes are on the <a href="${rel.html_url}">release page</a>.`;
