@@ -3,6 +3,17 @@
     "hurtle@arafays.github.io": {
       "updates": [
         {
+          "version": "0.4.0",
+          "update_link": "https://github.com/arafays/hurtle/releases/download/v0.4.0/hurtle-firefox-0.4.0.xpi",
+          "update_hash": "sha256:794567b4f94db0c7f736f126a0c311d12e458122960fc785bdbf7218720e0550",
+          "update_info_url": "https://github.com/arafays/hurtle/releases/tag/v0.4.0",
+          "applications": {
+            "gecko": {
+              "strict_min_version": "142.0"
+            }
+          }
+        },
+        {
           "version": "0.3.0",
           "update_link": "https://github.com/arafays/hurtle/releases/download/v0.3.0/hurtle-firefox-0.3.0.xpi",
           "update_hash": "sha256:14db7d1b941697ae4589204cc1805670ca4f4f0e516cc6d712a8dbd662a6c1ed",
