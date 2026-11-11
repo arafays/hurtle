@@ -97,6 +97,38 @@ case $os in
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>LSMinimumSystemVersion</key><string>11.0</string>
   <key>NSHighResolutionCapable</key><true/>
+  <!-- Offered for magnet: links and .torrent files (Hurtle's settings can make it the default). -->
+  <key>CFBundleURLTypes</key>
+  <array>
+    <dict>
+      <key>CFBundleURLName</key><string>Magnet link</string>
+      <key>CFBundleURLSchemes</key><array><string>magnet</string></array>
+      <key>CFBundleTypeRole</key><string>Viewer</string>
+    </dict>
+  </array>
+  <key>CFBundleDocumentTypes</key>
+  <array>
+    <dict>
+      <key>CFBundleTypeName</key><string>BitTorrent file</string>
+      <key>CFBundleTypeRole</key><string>Viewer</string>
+      <key>LSHandlerRank</key><string>Default</string>
+      <key>LSItemContentTypes</key><array><string>org.bittorrent.torrent</string></array>
+      <key>CFBundleTypeExtensions</key><array><string>torrent</string></array>
+    </dict>
+  </array>
+  <key>UTImportedTypeDeclarations</key>
+  <array>
+    <dict>
+      <key>UTTypeIdentifier</key><string>org.bittorrent.torrent</string>
+      <key>UTTypeDescription</key><string>BitTorrent file</string>
+      <key>UTTypeConformsTo</key><array><string>public.data</string></array>
+      <key>UTTypeTagSpecification</key>
+      <dict>
+        <key>public.filename-extension</key><array><string>torrent</string></array>
+        <key>public.mime-type</key><array><string>application/x-bittorrent</string></array>
+      </dict>
+    </dict>
+  </array>
 </dict>
 </plist>
 PLIST

@@ -3,7 +3,9 @@ use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Duration;
 
+use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::component::button::{Button, ButtonVariants};
+use gpui_kit::component::checkbox::Checkbox;
 use gpui_kit::component::input::{Input, InputEvent, InputState};
 use gpui_kit::component::menu::{DropdownMenu, PopupMenuItem};
 use gpui_kit::component::{
@@ -11,7 +13,7 @@ use gpui_kit::component::{
 };
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
-use hurtle_core::{AddRequest, Download, Engine, Kind, Status, util};
+use hurtle_core::{AddRequest, Download, Engine, Kind, Status, assoc, player, util};
 
 actions!(hurtle, [FocusSearch, Dismiss, PasteLink]);
 
@@ -90,13 +92,19 @@ pub struct HurtleView {
     confirm: Option<(u64, bool)>,
     /// Folders as last rendered (they can change from the extension).
     folders_fp: u64,
+    /// Whether Hurtle opens magnet links / .torrent files (asked when the
+    /// settings panel opens, since it runs xdg-mime / reg).
+    assoc: std::cell::Cell<Option<assoc::Status>>,
+    /// What "Make default" did.
+    assoc_note: Option<SharedString>,
     _poll: Task<()>,
 }
 
 impl HurtleView {
     pub fn new(engine: Arc<Engine>, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let url_input = cx.new(|cx| {
-            InputState::new(window, cx).placeholder("Paste a download link and press Enter…")
+            InputState::new(window, cx)
+                .placeholder("Paste a download link or magnet link and press Enter…")
         });
         cx.subscribe_in(
             &url_input,
@@ -162,6 +170,8 @@ impl HurtleView {
             show_folders: std::env::var("HURTLE_VIEW").is_ok_and(|v| v == "folders"),
             confirm: None,
             folders_fp: 0,
+            assoc: std::cell::Cell::new(None),
+            assoc_note: None,
             _poll: poll,
         };
         this.refresh(cx);
@@ -422,6 +432,301 @@ impl HurtleView {
                     ),
             );
         }
+        let border = cx.theme().border;
+        let muted = cx.theme().muted_foreground;
+        let data_dir = hurtle_core::data_dir();
+        panel
+            .child(self.render_torrent_settings(&s, cx))
+            .child(
+                v_flex()
+                    .px_4()
+                    .pt_4()
+                    .pb_2()
+                    .child(div().text_base().font_semibold().child("About")),
+            )
+            .child(
+                h_flex()
+                    .gap_3()
+                    .px_4()
+                    .py_2()
+                    .items_center()
+                    .border_b_1()
+                    .border_color(border)
+                    .child(
+                        v_flex()
+                            .flex_1()
+                            .min_w_0()
+                            .child(
+                                div()
+                                    .text_sm()
+                                    .child(format!("Hurtle {}", hurtle_core::build_info())),
+                            )
+                            .child(
+                                div()
+                                    .text_xs()
+                                    .text_color(muted)
+                                    .truncate()
+                                    .child(format!("Data and logs in {}", short_path(&data_dir))),
+                            ),
+                    )
+                    .child(
+                        Button::new("copy-version")
+                            .outline()
+                            .xsmall()
+                            .label("Copy")
+                            .on_click(|_, _, cx| {
+                                cx.write_to_clipboard(ClipboardItem::new_string(format!(
+                                    "Hurtle {} on {} {}",
+                                    hurtle_core::build_info(),
+                                    std::env::consts::OS,
+                                    std::env::consts::ARCH
+                                )));
+                            }),
+                    ),
+            )
+            .into_any_element()
+    }
+
+    /// BitTorrent and streaming settings.
+    fn render_torrent_settings(
+        &self,
+        s: &hurtle_core::Settings,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let border = cx.theme().border;
+        let muted = cx.theme().muted_foreground;
+        let line = |label: &str, hint: &str| {
+            h_flex()
+                .gap_3()
+                .px_4()
+                .py_2()
+                .items_center()
+                .border_b_1()
+                .border_color(border)
+                .child(
+                    v_flex()
+                        .flex_1()
+                        .min_w_0()
+                        .child(div().text_sm().child(label.to_string()))
+                        .when(!hint.is_empty(), |el| {
+                            el.child(div().text_xs().text_color(muted).child(hint.to_string()))
+                        }),
+                )
+        };
+        let mut panel = v_flex().child(
+            v_flex().px_4().pt_4().pb_2().child(
+                div()
+                    .text_base()
+                    .font_semibold()
+                    .child("BitTorrent and streaming"),
+            ),
+        );
+
+        // Seeding.
+        let ratio = s.seed_ratio;
+        let engine = self.engine.clone();
+        panel = panel.child(
+            line(
+                "Seed finished torrents",
+                "Keep uploading until you have shared this much of what you downloaded",
+            )
+            .child(
+                Button::new("seed-ratio")
+                    .outline()
+                    .xsmall()
+                    .label(if ratio <= 0.0 {
+                        "Don't seed".to_string()
+                    } else {
+                        format!("Ratio {ratio}")
+                    })
+                    .dropdown_menu(move |mut menu, _, _| {
+                        for r in [0.0f32, 0.5, 1.0, 2.0, 5.0] {
+                            let engine = engine.clone();
+                            menu = menu.item(
+                                PopupMenuItem::new(if r == 0.0 {
+                                    "Don't seed".to_string()
+                                } else {
+                                    format!("Ratio {r}")
+                                })
+                                .checked((r - ratio).abs() < 0.01)
+                                .on_click(move |_, window, _| {
+                                    let mut s = engine.settings();
+                                    s.seed_ratio = r;
+                                    engine.set_settings(s);
+                                    window.refresh();
+                                }),
+                            );
+                        }
+                        menu
+                    }),
+            ),
+        );
+        let engine = self.engine.clone();
+        panel = panel.child(
+            line("Upload limit", "For all torrents together").child(limit_menu(
+                "upload-limit",
+                s.upload_limit,
+                "Upload speed limit",
+                Rc::new(move |bps| {
+                    let mut s = engine.settings();
+                    s.upload_limit = bps;
+                    engine.set_settings(s);
+                }),
+                None,
+            )),
+        );
+
+        // Player.
+        let players = player::detect();
+        let current = player::choose(&s.player);
+        let engine = self.engine.clone();
+        let chosen = s.player.clone();
+        panel = panel.child(
+            line(
+                "Player for streams",
+                if players.is_empty() {
+                    "No player found (VLC, mpv…): streams open in the default app"
+                } else {
+                    "Opens while the torrent downloads; seeking fetches that part first"
+                },
+            )
+            .child(
+                Button::new("player")
+                    .outline()
+                    .xsmall()
+                    .icon(Lucide::TvMinimalPlay)
+                    .label(
+                        current
+                            .map(|p| p.name)
+                            .unwrap_or_else(|| "Default app".into()),
+                    )
+                    .dropdown_menu(move |mut menu, _, _| {
+                        let auto = engine.clone();
+                        menu = menu.item(
+                            PopupMenuItem::new("Automatic (VLC first)")
+                                .checked(chosen.is_empty())
+                                .on_click(move |_, window, _| {
+                                    let mut s = auto.settings();
+                                    s.player.clear();
+                                    auto.set_settings(s);
+                                    window.refresh();
+                                }),
+                        );
+                        for p in &players {
+                            let engine = engine.clone();
+                            let pid = p.id.clone();
+                            menu = menu.item(
+                                PopupMenuItem::new(p.name.clone())
+                                    .checked(chosen == p.id)
+                                    .on_click(move |_, window, _| {
+                                        let mut s = engine.settings();
+                                        s.player = pid.clone();
+                                        engine.set_settings(s);
+                                        window.refresh();
+                                    }),
+                            );
+                        }
+                        menu
+                    }),
+            ),
+        );
+
+        for (id, label, hint, on) in [
+            (
+                "lan",
+                "Share streams on my network",
+                "Stream URLs work on a TV or phone on this network (VLC → Open Network Stream). Applies after a restart.",
+                s.stream_lan,
+            ),
+            (
+                "dht",
+                "Find peers through DHT",
+                "Needed for most magnet links. Applies after a restart.",
+                s.torrent_dht,
+            ),
+            (
+                "upnp",
+                "Open the port on the router (UPnP)",
+                "More peers can connect to you. Applies after a restart.",
+                s.torrent_upnp,
+            ),
+        ] {
+            panel = panel.child(
+                line(label, hint).child(
+                    Button::new(SharedString::from(format!("toggle-{id}")))
+                        .outline()
+                        .xsmall()
+                        .selected(on)
+                        .label(if on { "On" } else { "Off" })
+                        .on_click(cx.listener(move |this, _, _, cx| {
+                            let mut s = this.engine.settings();
+                            match id {
+                                "lan" => s.stream_lan = !s.stream_lan,
+                                "dht" => s.torrent_dht = !s.torrent_dht,
+                                _ => s.torrent_upnp = !s.torrent_upnp,
+                            }
+                            this.engine.set_settings(s);
+                            this.refresh(cx);
+                            cx.notify();
+                        })),
+                ),
+            );
+        }
+        // The system's app for magnet links and .torrent files.
+        let st = match self.assoc.get() {
+            Some(st) => st,
+            None => {
+                let st = assoc::status();
+                self.assoc.set(Some(st));
+                st
+            }
+        };
+        let hint: String = match (&self.assoc_note, st.is_default(), st.magnet, st.torrent) {
+            (Some(note), ..) => note.to_string(),
+            (None, true, ..) => {
+                "Hurtle opens them: browsers and file managers hand them over".into()
+            }
+            (None, false, true, false) => {
+                "Hurtle opens magnet links; .torrent files open in another app".into()
+            }
+            (None, false, false, true) => {
+                "Hurtle opens .torrent files; magnet links open in another app".into()
+            }
+            (None, false, ..) if st.known => {
+                "Hurtle is offered in \"Open with\", but another app is the default".into()
+            }
+            _ => "Not registered with the system yet".into(),
+        };
+        panel = panel.child(
+            line("Default app for magnet links and .torrent files", &hint).child(
+                Button::new("make-default")
+                    .outline()
+                    .xsmall()
+                    .icon(Lucide::Magnet)
+                    .selected(st.is_default())
+                    .label(if st.is_default() {
+                        "Default"
+                    } else {
+                        "Make default"
+                    })
+                    .on_click(cx.listener(|this, _, _, cx| {
+                        let r = assoc::make_default();
+                        this.assoc_note = Some(match r {
+                            Ok(m) => m.into(),
+                            Err(e) => format!("Couldn't: {e}").into(),
+                        });
+                        this.assoc.set(None);
+                        cx.notify();
+                    })),
+            ),
+        );
+        panel = panel.child(line(
+            "Listening port",
+            &format!(
+                "{} (TCP and uTP; a taken port falls back to any free one)",
+                s.torrent_port
+            ),
+        ));
         panel.into_any_element()
     }
 
@@ -456,10 +761,12 @@ impl HurtleView {
             .unwrap_or_default();
         let links: Vec<&str> = text
             .split_whitespace()
-            .filter(|t| t.starts_with("http://") || t.starts_with("https://"))
+            .filter(|t| {
+                t.starts_with("http://") || t.starts_with("https://") || t.starts_with("magnet:")
+            })
             .collect();
         if links.is_empty() {
-            self.error = Some("The clipboard has no link (http:// or https://).".into());
+            self.error = Some("The clipboard has no link (http://, https:// or magnet:).".into());
             cx.notify();
             return;
         }
@@ -467,6 +774,46 @@ impl HurtleView {
         self.url_input
             .update(cx, |input, cx| input.set_value(joined, window, cx));
         self.submit(window, cx);
+    }
+
+    /// Pick `.torrent` files with the system picker and add them.
+    fn open_torrents(&mut self, cx: &mut Context<Self>) {
+        let rx = cx.prompt_for_paths(PathPromptOptions {
+            files: true,
+            directories: false,
+            multiple: true,
+            prompt: Some("Download".into()),
+        });
+        let engine = self.engine.clone();
+        cx.spawn(async move |this, cx| {
+            let Ok(Ok(Some(paths))) = rx.await else {
+                return;
+            };
+            let errors: Vec<String> = paths
+                .iter()
+                .filter_map(|p| {
+                    engine
+                        .add(AddRequest::new(p.to_string_lossy()))
+                        .err()
+                        .map(|e| format!("{}: {e}", p.display()))
+                })
+                .collect();
+            let _ = this.update(cx, |this, cx| {
+                this.error = (!errors.is_empty()).then(|| errors.join("\n").into());
+                this.refresh(cx);
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// Stream a file (None = the main video) into the player.
+    fn play(&mut self, id: u64, file: Option<usize>, cx: &mut Context<Self>) {
+        if let Err(e) = self.engine.play(id, file) {
+            self.error = Some(format!("Can't stream: {e}").into());
+        }
+        self.refresh(cx);
+        cx.notify();
     }
 
     fn set_connections(&mut self, n: usize, cx: &mut Context<Self>) {
@@ -535,13 +882,21 @@ impl HurtleView {
                     .on_click(cx.listener(|this, _, window, cx| this.submit(window, cx))),
             )
             .child(
+                Button::new("open-torrent")
+                    .ghost()
+                    .icon(Lucide::Magnet)
+                    .tooltip("Open .torrent files")
+                    .on_click(cx.listener(|this, _, _, cx| this.open_torrents(cx))),
+            )
+            .child(
                 Button::new("folders")
                     .ghost()
                     .icon(IconName::Folder)
                     .selected(self.show_folders)
-                    .tooltip("Download folders")
+                    .tooltip("Folders and settings")
                     .on_click(cx.listener(|this, _, _, cx| {
                         this.show_folders = !this.show_folders;
+                        this.assoc.set(None);
                         cx.notify();
                     })),
             )
@@ -632,6 +987,11 @@ impl HurtleView {
 
     /// Expanded row: URL, location and one line per live connection.
     fn render_detail(&self, d: &Download, cx: &mut Context<Self>) -> AnyElement {
+        let torrent_panel = d
+            .torrent
+            .as_ref()
+            .filter(|_| d.kind == Kind::Torrent)
+            .map(|t| self.render_torrent(d, t, cx));
         let theme = cx.theme();
         let muted = theme.muted_foreground;
         let url = d.final_url.clone().unwrap_or_else(|| d.url.clone());
@@ -683,6 +1043,10 @@ impl HurtleView {
                             .on_click(move |_, _, cx| cx.open_url(&open)),
                     ),
             );
+        }
+
+        if let Some(p) = torrent_panel {
+            panel = panel.child(p);
         }
 
         let live: Vec<(usize, &hurtle_core::Segment)> = d
@@ -765,6 +1129,198 @@ impl HurtleView {
         panel.into_any_element()
     }
 
+    /// A torrent's swarm numbers, stream links and file list (with choice).
+    fn render_torrent(
+        &self,
+        d: &Download,
+        t: &hurtle_core::torrent::TorrentState,
+        cx: &mut Context<Self>,
+    ) -> AnyElement {
+        let theme = cx.theme();
+        let (muted, track, fill) = (theme.muted_foreground, theme.muted, theme.primary);
+        let id = d.id;
+        let size = d.total.unwrap_or(0);
+        let field = |label: &'static str, value: String| {
+            h_flex()
+                .gap_2()
+                .text_xs()
+                .child(div().w(px(56.)).text_color(muted).child(label))
+                .child(div().flex_1().min_w_0().truncate().child(value))
+        };
+        let mut panel = v_flex().gap_1();
+        if !t.info_hash.is_empty() {
+            panel = panel.child(field("Hash", t.info_hash.clone()));
+        }
+        let mut swarm = format!(
+            "{} peer{} ({} seed{})  ·  uploaded {}  ·  ratio {:.2}",
+            t.peers,
+            if t.peers == 1 { "" } else { "s" },
+            t.seeds,
+            if t.seeds == 1 { "" } else { "s" },
+            util::fmt_bytes(t.uploaded),
+            t.ratio(size)
+        );
+        if t.upload_speed > 0 {
+            swarm.push_str(&format!(
+                "  ·  ↑ {}",
+                util::fmt_speed(t.upload_speed as f64)
+            ));
+        }
+        panel = panel.child(field("Swarm", swarm));
+
+        // Stream links: for VLC's "Open Network Stream", or another device.
+        let has_video = t.main_playable().is_some();
+        if has_video {
+            let player = player::choose(&self.engine.settings().player)
+                .map(|p| p.name)
+                .unwrap_or_else(|| "the default app".into());
+            let (e1, e2) = (self.engine.clone(), self.engine.clone());
+            panel = panel.child(
+                h_flex()
+                    .gap_1()
+                    .items_center()
+                    .child(div().w(px(56.)).text_xs().text_color(muted).child("Stream"))
+                    .child(
+                        Button::new(("play-main", id))
+                            .outline()
+                            .xsmall()
+                            .icon(Lucide::TvMinimalPlay)
+                            .label(format!("Play in {player}"))
+                            .on_click(cx.listener(move |this, _, _, cx| this.play(id, None, cx))),
+                    )
+                    .child(
+                        Button::new(("copy-stream", id))
+                            .ghost()
+                            .xsmall()
+                            .icon(Lucide::Link)
+                            .label("Copy stream URL")
+                            .tooltip("For VLC's Open Network Stream (Ctrl+N), or any player")
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                match e1.stream_url(id, None) {
+                                    Ok(u) => cx.write_to_clipboard(ClipboardItem::new_string(u)),
+                                    Err(e) => this.error = Some(format!("{e}").into()),
+                                }
+                                cx.notify();
+                            })),
+                    )
+                    .child(
+                        Button::new(("copy-m3u", id))
+                            .ghost()
+                            .xsmall()
+                            .icon(Lucide::ListVideo)
+                            .label("Copy playlist URL")
+                            .tooltip(
+                                "Every video and audio file of this torrent, as an .m3u playlist",
+                            )
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                match e2.playlist_url(id) {
+                                    Ok(u) => cx.write_to_clipboard(ClipboardItem::new_string(u)),
+                                    Err(e) => this.error = Some(format!("{e}").into()),
+                                }
+                                cx.notify();
+                            })),
+                    ),
+            );
+        }
+
+        let shown: Vec<(usize, &hurtle_core::torrent::TorrentFile)> = t
+            .files
+            .iter()
+            .enumerate()
+            .filter(|(_, f)| !f.padding)
+            .collect();
+        if shown.is_empty() {
+            return panel
+                .child(field(
+                    "Files",
+                    "waiting for the file list from peers…".into(),
+                ))
+                .into_any_element();
+        }
+        let selected = shown.iter().filter(|(_, f)| f.selected).count();
+        panel = panel.child(div().pt_1().text_xs().font_semibold().child(format!(
+            "{} file{}, {selected} selected",
+            shown.len(),
+            if shown.len() == 1 { "" } else { "s" }
+        )));
+        const MAX_ROWS: usize = 300;
+        for (i, f) in shown.iter().take(MAX_ROWS) {
+            let i = *i;
+            let frac = if f.size == 0 {
+                1.0
+            } else {
+                (f.done as f32 / f.size as f32).clamp(0.0, 1.0)
+            };
+            let engine = self.engine.clone();
+            let current: Vec<usize> = t.selected();
+            let only_one = f.selected && selected == 1;
+            let row = h_flex()
+                .gap_2()
+                .items_center()
+                .text_xs()
+                .child(
+                    Checkbox::new(("tfile", id * 100_000 + i as u64))
+                        .checked(f.selected)
+                        .disabled(only_one)
+                        .on_click(move |on, _, _| {
+                            let mut sel = current.clone();
+                            if *on {
+                                sel.push(i);
+                            } else {
+                                sel.retain(|x| *x != i);
+                            }
+                            let _ = engine.set_torrent_files(id, &sel);
+                        }),
+                )
+                .child(
+                    div()
+                        .flex_1()
+                        .min_w_0()
+                        .truncate()
+                        .when(!f.selected, |el| el.text_color(muted))
+                        .child(f.path.clone()),
+                )
+                .child(
+                    div()
+                        .w(px(64.))
+                        .h(px(4.))
+                        .rounded_full()
+                        .overflow_hidden()
+                        .bg(track)
+                        .child(div().h_full().w(relative(frac)).bg(fill)),
+                )
+                .child(
+                    div()
+                        .w(px(72.))
+                        .text_right()
+                        .text_color(muted)
+                        .child(util::fmt_bytes(f.size)),
+                )
+                .child(div().w(px(24.)).when(player::is_playable(&f.path), |el| {
+                    el.child(
+                        Button::new(("tplay", id * 100_000 + i as u64))
+                            .ghost()
+                            .xsmall()
+                            .icon(Lucide::TvMinimalPlay)
+                            .tooltip("Stream this file")
+                            .on_click(
+                                cx.listener(move |this, _, _, cx| this.play(id, Some(i), cx)),
+                            ),
+                    )
+                }));
+            panel = panel.child(row);
+        }
+        if shown.len() > MAX_ROWS {
+            panel = panel.child(
+                div()
+                    .text_xs()
+                    .text_color(muted)
+                    .child(format!("+ {} more files", shown.len() - MAX_ROWS)),
+            );
+        }
+        panel.into_any_element()
+    }
+
     fn render_row(&self, d: &Download, cx: &mut Context<Self>) -> AnyElement {
         let theme = cx.theme();
         let id = d.id;
@@ -777,7 +1333,25 @@ impl HurtleView {
         };
 
         let media = d.kind == Kind::Media;
+        let torrent = d.torrent.as_ref().filter(|_| d.kind == Kind::Torrent);
         let detail: SharedString = match &d.status {
+            Status::Downloading if torrent.is_some() => {
+                let mut s = format!(
+                    "{} of {}",
+                    util::fmt_bytes(d.downloaded),
+                    d.total.map(util::fmt_bytes).unwrap_or_else(|| "?".into()),
+                );
+                if let Some(note) = &d.note {
+                    s.push_str(&format!("  ·  {note}"));
+                }
+                s.into()
+            }
+            Status::Completed if torrent.is_some_and(|t| t.seeding) => format!(
+                "{}  ·  {}",
+                util::fmt_bytes(d.total.unwrap_or(d.downloaded)),
+                d.note.as_deref().unwrap_or("Seeding")
+            )
+            .into(),
             // yt-dlp: progress plus what it's working on ("Video (stream 1) ·
             // fragment 12/40"); post-processing steps have no byte progress.
             Status::Downloading if media && d.downloaded > 0 && d.active_connections > 0 => {
@@ -863,15 +1437,68 @@ impl HurtleView {
         let limit_engine = self.engine.clone();
         let limit = d.speed_limit;
         let conns = d.connections;
+        let is_torrent = torrent.is_some();
         let mut actions = h_flex().gap_1().when(!done, |el| {
             el.child(limit_menu(
                 ("limit", id),
                 limit,
-                "Speed limit and connections for this file",
+                if is_torrent {
+                    "Download speed limit for this torrent"
+                } else {
+                    "Speed limit and connections for this file"
+                },
                 Rc::new(move |bps| limit_engine.set_speed_limit(id, bps)),
-                Some((conns, Rc::new(move |n| engine.set_connections(id, n)))),
+                (!is_torrent).then(|| {
+                    (
+                        conns,
+                        Rc::new(move |n| engine.set_connections(id, n)) as SetConnections,
+                    )
+                }),
             ))
         });
+        // Watch it while it downloads (torrents), or play the finished file.
+        let playable = match torrent {
+            Some(t) => t.files.is_empty() || t.main_playable().is_some(),
+            None => done && player::is_playable(&d.filename),
+        };
+        if playable && !matches!(d.status, Status::Failed(_)) {
+            actions = actions.child(
+                Button::new(("play", id))
+                    .ghost()
+                    .small()
+                    .icon(Lucide::TvMinimalPlay)
+                    .tooltip(if done {
+                        "Play in VLC (or your player)"
+                    } else {
+                        "Stream into VLC (or your player) while it downloads"
+                    })
+                    .on_click(cx.listener(move |this, _, _, cx| this.play(id, None, cx))),
+            );
+        }
+        if let Some(t) = torrent.filter(|_| done) {
+            let seeding = t.seeding;
+            actions = actions.child(
+                Button::new(("seed", id))
+                    .ghost()
+                    .small()
+                    .icon(Lucide::Upload)
+                    .selected(seeding)
+                    .tooltip(if seeding {
+                        "Stop seeding"
+                    } else {
+                        "Seed (share with other peers)"
+                    })
+                    .on_click(cx.listener(move |this, _, _, cx| {
+                        if seeding {
+                            this.engine.pause(id);
+                        } else if let Err(e) = this.engine.seed(id) {
+                            this.error = Some(format!("Can't seed: {e}").into());
+                        }
+                        this.refresh(cx);
+                        cx.notify();
+                    })),
+            );
+        }
         if can_pause {
             actions = actions.child(
                 Button::new(("pause", id))
@@ -941,14 +1568,22 @@ impl HurtleView {
                     })),
             );
         }
-        let copy = d.url.clone();
+        let copy = hurtle_core::torrent::magnet_link(d).unwrap_or_else(|| d.url.clone());
         actions = actions
             .child(
                 Button::new(("copyrow", id))
                     .ghost()
                     .small()
-                    .icon(IconName::Copy)
-                    .tooltip("Copy link")
+                    .icon(if is_torrent {
+                        Lucide::Magnet.into()
+                    } else {
+                        Icon::new(IconName::Copy)
+                    })
+                    .tooltip(if is_torrent {
+                        "Copy magnet link"
+                    } else {
+                        "Copy link"
+                    })
                     .on_click(move |_, _, cx| {
                         cx.write_to_clipboard(ClipboardItem::new_string(copy.clone()))
                     }),
@@ -1435,6 +2070,7 @@ impl Render for HurtleView {
                             .child(format!("Saving to {}", short_path(&download_dir)))
                             .on_click(cx.listener(|this, _, _, cx| {
                                 this.show_folders = true;
+                                this.assoc.set(None);
                                 cx.notify();
                             })),
                     )
@@ -1454,6 +2090,19 @@ impl Render for HurtleView {
                         )
                     })
                     .child(self.theme_menu(cx))
+                    .child(
+                        div()
+                            .id("version")
+                            .flex_none()
+                            .cursor_pointer()
+                            .hover(|s| s.underline())
+                            .child(format!("v{}", hurtle_core::VERSION))
+                            .on_click(cx.listener(|this, _, _, cx| {
+                                this.show_folders = true;
+                                this.assoc.set(None);
+                                cx.notify();
+                            })),
+                    )
                     .when(has_completed, |el| {
                         el.child(
                             Button::new("clear")
@@ -1508,6 +2157,21 @@ pub(crate) fn fingerprint(downloads: &[Download]) -> u64 {
                 .fold(3u64, |a, b| a.wrapping_mul(31).wrapping_add(b as u64))
                 .rotate_left(23),
             )
+            .wrapping_add(d.torrent.as_ref().map_or(0, |t| {
+                // Swarm numbers, seeding, and each file's choice and progress.
+                t.files.iter().fold(
+                    (t.peers as u64) << 1
+                        ^ (t.seeds as u64) << 12
+                        ^ t.upload_speed >> 10 << 24
+                        ^ t.uploaded >> 16
+                        ^ (t.seeding as u64) << 62
+                        ^ t.info_hash.len() as u64,
+                    |a, f| {
+                        a.wrapping_mul(13)
+                            .wrapping_add((f.done >> 14) ^ (f.selected as u64) << 61)
+                    },
+                )
+            }))
             .wrapping_add(d.segments.iter().fold(0u64, |a, s| {
                 // Per-connection speed (to 4 KiB/s) and stalls change the detail panel.
                 let stalled = s.last_data.is_some_and(|t| t.elapsed().as_secs() >= 3);

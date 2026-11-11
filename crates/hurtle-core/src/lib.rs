@@ -6,14 +6,18 @@
 //! connection stays busy until the very end. Servers that throttle per
 //! connection therefore deliver roughly `connections ×` the single-stream speed.
 
+pub mod assoc;
 pub mod ipc;
 mod job;
 pub mod log;
 pub mod media;
 pub mod nmh;
+pub mod player;
 pub mod rate;
 mod sched;
+pub mod stream;
 pub mod tools;
+pub mod torrent;
 pub mod util;
 
 use std::collections::BTreeMap;
@@ -28,6 +32,22 @@ use tokio::runtime::Runtime;
 use tokio_util::sync::CancellationToken;
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+/// The git commit this was built from ("c1e7181"); none for builds outside
+/// a git checkout. Uncommitted changes aren't marked.
+pub const COMMIT: Option<&str> = option_env!("HURTLE_COMMIT");
+
+/// "0.3.0 (c1e7181)", "0.3.0 (c1e7181, debug build)".
+pub fn build_info() -> String {
+    let mut parts: Vec<&str> = COMMIT.into_iter().collect();
+    if cfg!(debug_assertions) {
+        parts.push("debug build");
+    }
+    if parts.is_empty() {
+        VERSION.to_string()
+    } else {
+        format!("{VERSION} ({})", parts.join(", "))
+    }
+}
 
 /// A request to download something. This is also the wire format the browser
 /// extension sends (camelCase JSON).
@@ -64,6 +84,15 @@ pub struct AddRequest {
     /// Size the browser reported, in bytes. A paused or failed download of
     /// the same size picks up the new link and resumes instead of starting over.
     pub size: Option<u64>,
+    /// Contents of a `.torrent` file, base64 (the browser fetched it, or a
+    /// second app launch read it from disk). `url` may then be empty.
+    pub torrent_data: Option<String>,
+    /// Torrents: the ids of the files to download (None = all).
+    pub files: Option<Vec<usize>>,
+    /// Torrents: seed until this share ratio (None = the global setting, 0 = don't).
+    pub seed_ratio: Option<f32>,
+    /// Torrents: open the main video in a player as soon as it can stream.
+    pub stream: bool,
 }
 
 impl AddRequest {
@@ -118,6 +147,25 @@ pub struct Settings {
     /// App theme: "system" (follow the desktop's palette), "light", "dark",
     /// or the id of a built-in preset.
     pub theme: String,
+    /// BitTorrent listening port (TCP and uTP); taken → any free port.
+    pub torrent_port: u16,
+    /// Forward the port on the router (UPnP).
+    pub torrent_upnp: bool,
+    /// Find peers through the DHT and local discovery (magnets need it).
+    pub torrent_dht: bool,
+    /// Keep uploading a finished torrent until uploaded ÷ size reaches this (0 = never seed).
+    pub seed_ratio: f32,
+    /// BitTorrent upload limit, bytes/s (0 = unlimited).
+    pub upload_limit: u64,
+    /// Peers per torrent.
+    pub torrent_peers: usize,
+    /// Player for streams: an id from `player::detect` ("vlc", "mpv"…) or a
+    /// program path. Empty = the first one found, VLC preferred.
+    pub player: String,
+    /// Let other devices on the network open stream URLs (VLC on a TV…).
+    pub stream_lan: bool,
+    /// Stream server port (0 = any free port).
+    pub stream_port: u16,
 }
 
 impl Default for Settings {
@@ -135,6 +183,15 @@ impl Default for Settings {
             max_active: 4,
             speed_limit: 0,
             theme: "system".into(),
+            torrent_port: 42069,
+            torrent_upnp: true,
+            torrent_dht: true,
+            seed_ratio: 1.0,
+            upload_limit: 0,
+            torrent_peers: 128,
+            player: String::new(),
+            stream_lan: false,
+            stream_port: 0,
         }
     }
 }
@@ -181,6 +238,35 @@ impl Settings {
         }
         if let Some(b) = change.notify {
             self.notify = b;
+            changed = true;
+        }
+        if let Some(r) = change.seed_ratio {
+            self.seed_ratio = r.clamp(0.0, 100.0);
+            changed = true;
+        }
+        if let Some(l) = change.upload_limit {
+            self.upload_limit = l;
+            changed = true;
+        }
+        if let Some(p) = change.torrent_port {
+            self.torrent_port = p;
+            changed = true;
+        }
+        if let Some(b) = change.torrent_dht {
+            self.torrent_dht = b;
+            changed = true;
+        }
+        if let Some(b) = change.torrent_upnp {
+            self.torrent_upnp = b;
+            changed = true;
+        }
+        if let Some(p) = &change.player {
+            // An id, or a program path; nothing else from IPC.
+            let p = p.trim();
+            if !p.is_empty() && !player::detect().iter().any(|d| d.id == p) {
+                return Err(format!("no player \"{p}\" found"));
+            }
+            self.player = p.to_string();
             changed = true;
         }
         if let Some(d) = &change.download_dir {
@@ -346,6 +432,8 @@ pub enum Kind {
     File,
     /// A video page or HLS/DASH stream, handed to yt-dlp.
     Media,
+    /// A magnet link or `.torrent`, fetched over BitTorrent.
+    Torrent,
 }
 
 /// Byte range `[start, end)`; `pos` is how far it has been written.
@@ -415,6 +503,9 @@ pub struct Download {
     /// The page this was found on; go there for a fresh link.
     #[serde(default)]
     pub page_url: Option<String>,
+    /// Torrent downloads: info hash, files, seeding.
+    #[serde(default)]
+    pub torrent: Option<torrent::TorrentState>,
     /// What's happening besides transferring bytes ("Merging audio and video").
     #[serde(skip)]
     pub note: Option<String>,
@@ -450,6 +541,131 @@ impl Download {
     }
 }
 
+/// A `.torrent` path (or `file://` URL) on this machine.
+fn local_torrent(url: &str) -> Option<PathBuf> {
+    let u = url.trim();
+    let path = match u.strip_prefix("file://") {
+        Some(rest) => PathBuf::from(
+            percent_encoding::percent_decode_str(rest)
+                .decode_utf8_lossy()
+                .into_owned(),
+        ),
+        None if !u.contains("://") && !torrent::is_magnet(u) => PathBuf::from(u),
+        None => return None,
+    };
+    (path
+        .extension()
+        .is_some_and(|e| e.eq_ignore_ascii_case("torrent"))
+        && path.is_file())
+    .then_some(path)
+}
+
+/// Resolve what to stream (the main video by default), make sure it will be
+/// downloaded and the download runs, and start the server.
+async fn prepare_stream(
+    inner: &Arc<Inner>,
+    id: u64,
+    file: Option<usize>,
+) -> Result<(String, usize), String> {
+    let job = inner.job(id).ok_or("no such download")?;
+    let (file, name, need_select, start) = {
+        let rec = job.rec.lock().unwrap();
+        match (&rec.kind, &rec.torrent) {
+            (Kind::Torrent, Some(t)) => {
+                let file = match file.or_else(|| t.main_playable()) {
+                    Some(f) => f,
+                    None if t.files.is_empty() => {
+                        return Err("the file list isn't known yet; try again in a moment".into());
+                    }
+                    None => return Err("this torrent has no video or audio file".into()),
+                };
+                let f = t.files.get(file).ok_or("no such file")?;
+                (
+                    file,
+                    f.path.clone(),
+                    !f.selected,
+                    matches!(rec.status, Status::Paused | Status::Failed(_)),
+                )
+            }
+            _ if rec.status == Status::Completed => (0, rec.filename.clone(), false, false),
+            _ => return Err("only finished downloads and torrents can be streamed".into()),
+        }
+    };
+    if need_select {
+        let mut sel = job
+            .rec
+            .lock()
+            .unwrap()
+            .torrent
+            .as_ref()
+            .map(|t| t.selected())
+            .unwrap_or_default();
+        sel.push(file);
+        torrent::set_files(inner, &job, &sel).await?;
+    }
+    let restart = start || (need_select && job.rec.lock().unwrap().status == Status::Paused);
+    if restart {
+        let mut rec = job.rec.lock().unwrap();
+        if matches!(rec.status, Status::Paused | Status::Failed(_)) {
+            rec.status = Status::Queued;
+        }
+        drop(rec);
+        inner.mark_dirty();
+        inner.schedule();
+    }
+    let server = stream::server(inner).await?;
+    Ok((stream::file_url(server, id, file, &name), file))
+}
+
+/// Wait until the file can be read (metadata known, pieces checked), then
+/// open the player. Gives up after 10 minutes.
+async fn launch_when_ready(inner: Arc<Inner>, id: u64, file: usize, url: String) {
+    let deadline = std::time::Instant::now() + Duration::from_secs(600);
+    loop {
+        let Some(job) = inner.job(id) else { return };
+        let (ready, title, gone) = {
+            let rec = job.rec.lock().unwrap();
+            let title = rec
+                .torrent
+                .as_ref()
+                .and_then(|t| t.files.get(file))
+                .map(|f| f.path.rsplit('/').next().unwrap_or(&f.path).to_string())
+                .unwrap_or_else(|| rec.filename.clone());
+            let ready = match &rec.torrent {
+                Some(t) => {
+                    rec.status == Status::Completed
+                        || (rec.status == Status::Downloading
+                            && torrent::live_handle(&inner, &t.info_hash).is_some())
+                }
+                None => rec.status == Status::Completed,
+            };
+            let gone = matches!(rec.status, Status::Paused | Status::Failed(_));
+            (ready, title, gone)
+        };
+        if ready {
+            let preferred = inner.settings.lock().unwrap().player.clone();
+            let msg = match tokio::task::spawn_blocking(move || {
+                player::open(&url, &preferred, Some(&title))
+            })
+            .await
+            {
+                Ok(Ok(name)) => format!("#{id} streaming file {file} in {name}"),
+                Ok(Err(e)) => {
+                    job.rec.lock().unwrap().note = Some(format!("Couldn't open a player: {e}"));
+                    format!("#{id} player: {e}")
+                }
+                Err(e) => e.to_string(),
+            };
+            log::log("stream", msg);
+            return;
+        }
+        if gone || std::time::Instant::now() > deadline {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(500)).await;
+    }
+}
+
 /// The page a request came from: `page_url`, else its referrer (http(s) only).
 fn source_page(req: &AddRequest) -> Option<String> {
     [&req.page_url, &req.referrer]
@@ -474,7 +690,7 @@ struct Want<'a> {
 
 /// A link without its query string: signed and expiring links usually
 /// change only there (`?token=…&expires=…`).
-fn link_path(url: &str) -> &str {
+pub(crate) fn link_path(url: &str) -> &str {
     url.split(['?', '#']).next().unwrap_or(url)
 }
 
@@ -511,6 +727,8 @@ fn same_download(d: &Download, want: &Want) -> bool {
                 && d.container.as_deref() == want.container;
             same_options && (link_path(&d.url) == link_path(want.url) || (same_page && same_name))
         }
+        // Torrents match by info hash, in `add_torrent`.
+        Kind::Torrent => false,
     }
 }
 
@@ -543,6 +761,10 @@ pub(crate) struct Inner {
     /// Held while a download picks its file name and records the path, so
     /// two downloads probing at once can't claim the same one.
     pub(crate) path_claim: Mutex<()>,
+    /// The BitTorrent session, started with the first torrent.
+    pub(crate) torrents: torrent::Torrents,
+    /// The stream server for players, started on first use.
+    pub(crate) stream: tokio::sync::OnceCell<stream::Server>,
 }
 
 /// "Choose a folder" asked by a client (the extension). The UI shows its
@@ -689,6 +911,8 @@ impl Engine {
             ipc_path: Mutex::new(None),
             folder_picks: Mutex::new(Vec::new()),
             path_claim: Mutex::new(()),
+            torrents: torrent::Torrents::default(),
+            stream: tokio::sync::OnceCell::new(),
         });
 
         rt.spawn(ticker(inner.clone()));
@@ -709,6 +933,7 @@ impl Engine {
     }
 
     pub fn set_settings(&self, s: Settings) {
+        torrent::apply_limits(&self.inner, s.speed_limit, s.upload_limit);
         if s.speed_limit != self.inner.global_limit.rate() {
             self.inner.global_limit.set_rate(s.speed_limit);
             // yt-dlp can't share our token bucket: restart it with the new cap.
@@ -724,8 +949,13 @@ impl Engine {
         self.inner.schedule();
     }
 
-    /// Queue a download and return its id.
+    /// Queue a download and return its id. Unlike [`Engine::add_or_relink`]
+    /// (what IPC uses), `url` may also be a local `.torrent` file (the CLI,
+    /// the app's add bar).
     pub fn add(&self, req: AddRequest) -> Result<u64> {
+        if torrent::is_torrent_request(&req) || local_torrent(&req.url).is_some() {
+            return self.add_torrent(req, true).map(|(id, _)| id);
+        }
         self.add_or_relink(req).map(|(id, _)| id)
     }
 
@@ -733,6 +963,9 @@ impl Engine {
     /// download already in the list (see [`same_download`]), give that one
     /// the new link and resume it. The flag says which happened.
     pub fn add_or_relink(&self, req: AddRequest) -> Result<(u64, bool)> {
+        if torrent::is_torrent_request(&req) {
+            return self.add_torrent(req, false);
+        }
         let url = req.url.trim().to_string();
         util::require_http(&url)?;
         if let Some(id) = self.relink(&req, &url) {
@@ -760,7 +993,7 @@ impl Engine {
                 req.format.as_deref(),
                 req.container.as_deref(),
             )),
-            Kind::File => req.filename.as_deref().and_then(util::category),
+            Kind::File | Kind::Torrent => req.filename.as_deref().and_then(util::category),
         };
         let rec = Download {
             id,
@@ -795,6 +1028,7 @@ impl Engine {
             audio_lang: req.audio_lang.clone().filter(|l| !l.is_empty()),
             container: req.container.clone().filter(|c| !c.is_empty()),
             page_url: source_page(&req),
+            torrent: None,
             note: None,
             speed: 0.0,
             active_connections: 0,
@@ -827,6 +1061,232 @@ impl Engine {
         let _guard = self.rt.enter();
         self.inner.schedule();
         Ok((id, false))
+    }
+
+    /// Queue a magnet link or `.torrent` (URL, data, or with `allow_local` a
+    /// file path). The same torrent already in the list is resumed instead.
+    fn add_torrent(&self, req: AddRequest, allow_local: bool) -> Result<(u64, bool)> {
+        let url = req.url.trim().to_string();
+        let bytes = match req.torrent_data.as_deref().filter(|d| !d.is_empty()) {
+            Some(d) => Some(torrent::decode_data(d).map_err(anyhow::Error::msg)?),
+            None => match local_torrent(&url).filter(|_| allow_local) {
+                Some(path) => Some(
+                    std::fs::read(&path).with_context(|| format!("reading {}", path.display()))?,
+                ),
+                None => None,
+            },
+        };
+        let (hash, name, url) = if let Some(b) = &bytes {
+            let p = torrent::remember(&self.inner, b).map_err(anyhow::Error::msg)?;
+            let shown = if url.starts_with("http") {
+                url.clone()
+            } else {
+                format!("magnet:?xt=urn:btih:{}", p.info_hash)
+            };
+            (p.info_hash, Some(p.name), shown)
+        } else if torrent::is_magnet(&url) {
+            let m = torrent::parse_magnet(&url).map_err(anyhow::Error::msg)?;
+            (m.info_hash, m.name, url)
+        } else {
+            util::require_http(&url)?;
+            (String::new(), None, url)
+        };
+
+        // Already in the list: resume it (and take the new file choice).
+        if !hash.is_empty()
+            && let Some(d) = self.snapshot().into_iter().find(|d| {
+                d.torrent
+                    .as_ref()
+                    .is_some_and(|t| t.info_hash.eq_ignore_ascii_case(&hash))
+            })
+        {
+            if let Some(files) = &req.files {
+                let _ = self.set_torrent_files(d.id, files);
+            }
+            if !req.paused {
+                self.resume(d.id);
+            }
+            if req.stream {
+                let _ = self.play(d.id, None);
+            }
+            return Ok((d.id, true));
+        }
+
+        let settings = self.settings();
+        let dir = match &req.dir {
+            Some(d) => Some(folder(&d.to_string_lossy()).map_err(anyhow::Error::msg)?),
+            None => None,
+        };
+        let id = self.inner.next_id.fetch_add(1, Ordering::Relaxed);
+        let filename = name
+            .or_else(|| req.filename.clone())
+            .or_else(|| {
+                util::filename_from_url(&url).map(|n| n.trim_end_matches(".torrent").to_string())
+            })
+            .map(|n| util::sanitize_filename(&n))
+            .unwrap_or_default();
+        let rec = Download {
+            id,
+            url,
+            final_url: None,
+            headers: req.header_list(),
+            filename,
+            auto_dir: dir.is_none(),
+            dir: dir.unwrap_or_else(|| settings.download_dir.clone()),
+            path: None,
+            total: None,
+            resumable: true,
+            etag: None,
+            last_modified: None,
+            segments: vec![],
+            downloaded: 0,
+            status: if req.paused {
+                Status::Paused
+            } else {
+                Status::Queued
+            },
+            connections: settings.connections,
+            speed_limit: req.speed_limit.unwrap_or(0),
+            added_at: util::now_secs(),
+            finished_at: None,
+            kind: Kind::Torrent,
+            format: None,
+            audio_lang: None,
+            container: None,
+            page_url: source_page(&req),
+            torrent: Some(torrent::TorrentState {
+                info_hash: hash.clone(),
+                wanted: req.files.clone(),
+                seed_ratio: req.seed_ratio,
+                ..Default::default()
+            }),
+            note: None,
+            speed: 0.0,
+            active_connections: 0,
+        };
+        log::log(
+            "app",
+            format!(
+                "#{id} added torrent {} \"{}\" to {}{}",
+                if hash.is_empty() {
+                    log::url(&rec.url)
+                } else {
+                    hash
+                },
+                rec.filename,
+                rec.dir.display(),
+                if req.paused { " (paused)" } else { "" }
+            ),
+        );
+        self.inner
+            .jobs
+            .lock()
+            .unwrap()
+            .push(Arc::new(Job::new(rec)));
+        self.inner.mark_dirty();
+        let _guard = self.rt.enter();
+        self.inner.schedule();
+        if req.stream {
+            let _ = self.play(id, None);
+        }
+        Ok((id, false))
+    }
+
+    /// The file list of a magnet link or `.torrent` (for a dialog). Magnets
+    /// ask peers, which can take a while. Blocking.
+    pub fn probe_torrent(&self, req: &AddRequest) -> Result<torrent::TorrentProbe> {
+        let mut req = req.clone();
+        if req.torrent_data.is_none()
+            && let Some(path) = local_torrent(&req.url)
+        {
+            req.torrent_data = Some(torrent::encode_data(&std::fs::read(&path)?));
+        }
+        self.rt
+            .block_on(torrent::probe(&self.inner, &req))
+            .map_err(anyhow::Error::msg)
+    }
+
+    /// Choose which files of a torrent are downloaded.
+    pub fn set_torrent_files(&self, id: u64, files: &[usize]) -> Result<()> {
+        let job = self.inner.job(id).context("no such download")?;
+        let r = match tokio::runtime::Handle::try_current() {
+            Ok(_) => {
+                // Inside the runtime (IPC): don't block it.
+                let (inner, files) = (self.inner.clone(), files.to_vec());
+                self.rt.spawn(async move {
+                    let _ = torrent::set_files(&inner, &job, &files).await;
+                });
+                Ok(())
+            }
+            Err(_) => self
+                .rt
+                .block_on(torrent::set_files(&self.inner, &job, files)),
+        };
+        r.map_err(anyhow::Error::msg)
+    }
+
+    /// Seed a finished torrent again (until its ratio, or one more round).
+    pub fn seed(&self, id: u64) -> Result<()> {
+        let job = self.inner.job(id).context("no such download")?;
+        self.rt
+            .block_on(torrent::seed_again(&self.inner, &job))
+            .map_err(anyhow::Error::msg)
+    }
+
+    /// The URL a player can stream file `file` of download `id` from (None =
+    /// the main video). A paused torrent is resumed, and an unselected file
+    /// is added to the download. Works for finished plain downloads too.
+    pub fn stream_url(&self, id: u64, file: Option<usize>) -> Result<String> {
+        let inner = self.inner.clone();
+        self.block(async move { prepare_stream(&inner, id, file).await })
+            .map(|(url, _)| url)
+            .map_err(anyhow::Error::msg)
+    }
+
+    /// The `.m3u` playlist of every playable file of a download.
+    pub fn playlist_url(&self, id: u64) -> Result<String> {
+        let inner = self.inner.clone();
+        self.block(async move {
+            let s = stream::server(&inner).await?;
+            Ok(stream::playlist_url(s, id))
+        })
+        .map_err(anyhow::Error::msg)
+    }
+
+    /// Stream a file into the player (VLC first, see [`player::choose`]) as
+    /// soon as it can be read. Returns the stream URL.
+    pub fn play(&self, id: u64, file: Option<usize>) -> Result<String> {
+        let inner = self.inner.clone();
+        let (url, file) = self
+            .block(async move { prepare_stream(&inner, id, file).await })
+            .map_err(anyhow::Error::msg)?;
+        let inner = self.inner.clone();
+        let u = url.clone();
+        self.rt
+            .spawn(async move { launch_when_ready(inner, id, file, u).await });
+        Ok(url)
+    }
+
+    /// Run a future to completion from a non-async caller, or on the runtime
+    /// when called from inside it (IPC), without blocking a worker.
+    fn block<T: Send + 'static>(
+        &self,
+        fut: impl std::future::Future<Output = Result<T, String>> + Send + 'static,
+    ) -> Result<T, String> {
+        if tokio::runtime::Handle::try_current().is_ok() {
+            let (tx, rx) = std::sync::mpsc::channel();
+            self.rt.spawn(async move {
+                let _ = tx.send(fut.await);
+            });
+            tokio::task::block_in_place(|| rx.recv().map_err(|e| e.to_string()))?
+        } else {
+            self.rt.block_on(fut)
+        }
+    }
+
+    /// A magnet link for a torrent download.
+    pub fn magnet_link(&self, id: u64) -> Option<String> {
+        self.get(id).as_ref().and_then(torrent::magnet_link)
     }
 
     /// Point a matching unfinished download at `url` (with the request's
@@ -902,6 +1362,10 @@ impl Engine {
             let mut rec = job.rec.lock().unwrap();
             match rec.status {
                 Status::Queued => rec.status = Status::Paused,
+                // A finished torrent that is seeding: stop uploading.
+                Status::Completed if rec.torrent.as_ref().is_some_and(|t| t.seeding) => {
+                    job.cancel.lock().unwrap().cancel();
+                }
                 Status::Probing | Status::Downloading => {
                     job.cancel.lock().unwrap().cancel();
                     job.kill_child();
@@ -960,7 +1424,7 @@ impl Engine {
             let changed = rec.speed_limit != bytes_per_sec;
             rec.speed_limit = bytes_per_sec;
             job.limiter.set_rate(bytes_per_sec);
-            if changed && rec.kind == Kind::Media && rec.status.is_active() {
+            if changed && rec.kind != Kind::File && rec.status.is_active() {
                 job.restart();
             }
         }
@@ -979,7 +1443,12 @@ impl Engine {
         job.cancel.lock().unwrap().cancel();
         job.kill_child();
         let rec = job.rec.lock().unwrap().clone();
-        if rec.kind == Kind::Media {
+        if rec.kind == Kind::Torrent {
+            // Unfinished torrent data is as useless as a .part file.
+            let delete = delete_files || rec.status != Status::Completed;
+            self.rt
+                .spawn(torrent::forget(self.inner.clone(), rec.clone(), delete));
+        } else if rec.kind == Kind::Media {
             // yt-dlp's fragments and .part files live in a per-job dir.
             let tmp = media::temp_dir(&self.inner, rec.id);
             self.rt.spawn(async move {
@@ -1170,6 +1639,9 @@ where
     }
 }
 
+/// Files of a torrent listed over IPC (the rest are still downloaded).
+const MAX_LISTED_FILES: usize = 4000;
+
 async fn handle_request(engine: &Engine, req: &ipc::IpcRequest) -> ipc::IpcReply {
     match req {
         ipc::IpcRequest::Add(add) => match add
@@ -1191,6 +1663,44 @@ async fn handle_request(engine: &Engine, req: &ipc::IpcRequest) -> ipc::IpcReply
                 .await
                 .unwrap_or_else(ipc::IpcReply::err)
         }
+        ipc::IpcRequest::TorrentInfo(r) => match torrent::probe(&engine.inner, r).await {
+            Ok(mut info) => {
+                // Native-messaging replies are capped at 1 MB.
+                info.files.truncate(MAX_LISTED_FILES);
+                ipc::IpcReply {
+                    torrent: Some(info),
+                    ..ipc::IpcReply::ok(None)
+                }
+            }
+            Err(e) => ipc::IpcReply::err(e),
+        },
+        ipc::IpcRequest::Stream { id, file, play } => {
+            let r = match prepare_stream(&engine.inner, *id, *file).await {
+                Ok((url, f)) => {
+                    if *play {
+                        let inner = engine.inner.clone();
+                        tokio::spawn(launch_when_ready(inner, *id, f, url.clone()));
+                    }
+                    Ok(url)
+                }
+                Err(e) => Err(e),
+            };
+            match r {
+                Ok(url) => ipc::IpcReply {
+                    url: Some(url),
+                    ..ipc::IpcReply::ok(Some(*id))
+                },
+                Err(e) => ipc::IpcReply::err(e),
+            }
+        }
+        ipc::IpcRequest::Players => ipc::IpcReply {
+            players: Some(
+                tokio::task::spawn_blocking(player::detect)
+                    .await
+                    .unwrap_or_default(),
+            ),
+            ..ipc::IpcReply::ok(None)
+        },
         ipc::IpcRequest::Ping | ipc::IpcRequest::Show => ipc::IpcReply::ok(None),
         ipc::IpcRequest::Log { append, tail } => ipc::IpcReply::log(append, *tail),
         ipc::IpcRequest::PickFolder { title, start } => {
@@ -1233,6 +1743,8 @@ impl Engine {
     /// and our IPC socket is removed. Safe to call more than once. Call it
     /// from the UI's quit hook (a GUI toolkit may exit without running `Drop`).
     pub fn shutdown(&self) {
+        // Stops the BitTorrent session (listeners, DHT, every torrent).
+        self.inner.torrents.cancel.cancel();
         for job in self.inner.jobs.lock().unwrap().iter() {
             job.cancel.lock().unwrap().cancel();
             job.kill_child();
@@ -1526,6 +2038,7 @@ mod tests {
             audio_lang: None,
             container: None,
             page_url: Some("https://site.example/watch/1".into()),
+            torrent: None,
             note: None,
             speed: 0.0,
             active_connections: 0,

@@ -7,7 +7,7 @@ Hurtle is an IDM-style download accelerator for Linux, Windows and macOS. It has
 - A GPUI desktop app with a tray icon.
 - An MV3 browser extension for Chrome-family browsers and Firefox. It reaches the app through a native-messaging host.
 
-Video sites and HLS/DASH streams are handed to yt-dlp.
+Video sites and HLS/DASH streams are handed to yt-dlp. Magnet links and `.torrent` files go through librqbit, and any download can be streamed to a player (VLC first) over local HTTP.
 
 ## Commands
 
@@ -26,6 +26,8 @@ mise run ext:e2e-firefox  # headless Firefox-family e2e over WebDriver BiDi (ins
 mise run serve <file> [KiB/s] / mise run bench   # throttled local server, 1 vs 8 connections
 cargo run -p hurtle-core --example media_ops -- <url> <out-dir>   # yt-dlp limit-restart/pause/resume check
 cargo run -p hurtle-core --example pause_resume                   # segment resume across engine restarts
+cargo run -p hurtle-core --example torrent                        # BitTorrent over loopback: magnet+x.pe, file choice, mid-download range stream, restart/resume
+cargo run -p hurtle-core --example seed -- <path> [KiB/s]         # seed a path on 127.0.0.1, print a magnet (and write <name>.torrent to $TMPDIR)
 ```
 
 `mise run install` builds a release, copies the binaries to `~/.local/bin`, and writes the native-messaging manifests into every existing Chrome-family config dir and into `~/.mozilla`. Zen and other Firefox forks also read `~/.mozilla`. This changes the user's browser config, so leave it to the user unless they ask. With the AMO keys in `.env.local` (only those two lines are read) it also submits the Firefox build as a new unlisted AMO version (`ext:submit`, no waiting) and checks for ~90s; `mise run ext:fetch-signed <version>` (`scripts/amo-signed.py`) gets the xpi once approved. `HURTLE_SIGN=0` skips it, so don't run it just to test. CI's `ext:sign` still waits, since the release needs the xpi. A running `hurtle` keeps its old binary until it is restarted.
@@ -108,6 +110,18 @@ hurtle-cli ── uses Engine directly (data in $HURTLE_DATA/cli), or --send ove
   - `Engine::add_or_relink` checks `same_download`. When a paused, failed or queued entry matches, it gets the new URL and fresh headers, its ETag is cleared, and it is queued again instead of being added twice. The IPC reply then says `resumed: true`.
   - A file matches on the same link ignoring the query string, or on the same `size` (at least 1 MiB) plus the same name or page. Media matches on the same options plus the same manifest path, or the same page and name.
   - `job.rs`'s `same_file` probe still decides whether the segments are kept. Check it with `cargo run -p hurtle-core --example relink -- http://127.0.0.1:8090 <size> <dir>`.
+- **Torrents (`torrent.rs`, librqbit 9.1 with `rust-tls`, no default features):**
+  - `Kind::Torrent`: a magnet link, a `.torrent` URL or `application/x-bittorrent` probe, a local `.torrent` path (app/CLI only, never IPC), or `AddRequest.torrentData` (base64 of the file, sent by the extension so logged-in trackers work). `Download.torrent: Option<TorrentState>` holds the file list, the choice (`wanted`), uploaded bytes and the per-download seed ratio.
+  - One librqbit `Session` per engine, started lazily on the engine runtime (`torrents.session`), with `Settings.torrent_port` (default 42069, falls back to a free port; `HURTLE_TORRENT_PORT` overrides), DHT (state in `$HURTLE_DATA/torrent/dht.json`) and UPnP. Port/DHT/UPnP changes apply after a restart.
+  - librqbit ignores magnet `x.pe=` peers; `magnet_peers` passes them as `initial_peers`. Resolved metadata is cached as `$HURTLE_DATA/torrent/<hash>.torrent`, so resume never needs peers for metadata.
+  - `drive()` adds with `only_files` and `overwrite: true` (existing pieces are re-checked), polls stats every 500 ms into `downloaded`/`total` (the chosen files' pieces, so a little more than the files), peers and the note. Finishing seeds (`spawn_seeding`) until the ratio, else the torrent is removed from the session. Per-torrent limits are fixed at add time, so a limit change restarts the job like yt-dlp. No auto-retry.
+  - A single-file torrent goes into the folder chosen by its type; multi-file ones get `<dir>/<name>` (uniqued). `IpcRequest::TorrentInfo` lists files (truncated to 4000 for the 1 MB native-messaging cap); the host relays it to the app.
+  - `cargo-deny` ignores RUSTSEC-2026-0293 (ringbuf via librqbit-utp; only `u8` elements). Re-check when librqbit updates.
+- **Streaming (`stream.rs`, `player.rs`):**
+  - A hand-rolled HTTP/1.1 server (Range/206/416, HEAD) bound lazily on 127.0.0.1, or 0.0.0.0 when `Settings.stream_lan`. Every path starts with a random 32-hex token: `/<token>/<id>/<file>/<name>` and `/<token>/<id>.m3u`.
+  - A finished file is served from disk; an unfinished torrent file through librqbit's `FileStream`, which prioritises the pieces being read (that's how seeking works mid-download). Plain downloads stream once completed.
+  - `IpcRequest::Stream { id, file, play }` selects the file, resumes a paused torrent and returns the URL; `play` waits for a live handle and opens it with `player::open` (http URLs only). `player::detect` finds VLC first, then mpv & co. on `tools::search_dirs()`, Flatpak, macOS `/Applications` and Program Files; `Settings.player` is an id from that list (IPC refuses anything else) or a program path set in `settings.json`.
+- **Magnet/.torrent handler (`assoc.rs`):** `ensure_registered` (app start, release builds only, never changes a default) makes the OS offer Hurtle: Linux writes or patches `hurtle.desktop` (`MimeType=x-scheme-handler/magnet;application/x-bittorrent;`, a user copy shadows a package entry without it); Windows adds `Hurtle.Magnet`/`Hurtle.Torrent` ProgIDs, `.torrent\OpenWithProgids`, `Software\Hurtle\Capabilities` + `RegisteredApplications`, and claims `magnet` only when nothing handles it; macOS relies on `Info.plist` (`scripts/package.sh`) and the app's `on_open_urls`, since macOS sends links and files as Apple Events, not arguments. `make_default` uses `xdg-mime` (else edits `mimeapps.list`), Launch Services on macOS, and opens `ms-settings:defaultapps?registeredAppUser=Hurtle` on Windows. `status()` shells out, so the view caches it per panel opening.
 - **Speed limits:** `rate::RateLimiter` token buckets. There is one per job, shared by its connections, plus one global. Both change at runtime.
 - **Download folders:** `Settings.download_dir` is the main folder, and `type_dirs` maps a `util::CATEGORIES` id (video, audio, image, document, archive, program) to its own folder.
   - `Settings::dir_for(util::category(name))` picks the folder. Media uses `media::category(format, container)`, so audio-only goes to the audio folder.
@@ -124,7 +138,7 @@ hurtle-cli ── uses Engine directly (data in $HURTLE_DATA/cli), or --send ove
   - `Settings.notify` (default on) and `auto_retry` are settable over IPC (`notify`, `autoRetry`), in the app's folders panel and in the popup.
   - New `Download` fields need `#[serde(default)]`, or old stores stop loading.
 - **IPC (`ipc.rs`):**
-  - `IpcRequest` is tagged by `type`, camelCase: `add | probe | ping | show | settings`.
+  - `IpcRequest` is tagged by `type`, camelCase: `add | probe | ping | show | settings | torrentInfo | stream | players | …`.
   - `AddRequest` is also the extension's wire format.
   - The socket is `$HURTLE_SOCKET`, else `$XDG_RUNTIME_DIR/hurtle.sock`.
   - On Windows it is a named pipe instead: `ipc::pipe_name()` gives `\\.\pipe\hurtle-<user>`, and `HURTLE_SOCKET` names the pipe.
@@ -165,6 +179,7 @@ hurtle-cli ── uses Engine directly (data in $HURTLE_DATA/cli), or --send ove
   - Missing roles are derived and pushed to a minimum contrast.
   - `theme::poll` re-hashes the source files about once a second, so a generator's rewrite or a symlink swap re-themes the app live.
   - `HURTLE_THEME=<name|path>` overrides the setting, for screenshots.
+- **Torrent UI (`view.rs`):** paste a magnet or use "Open .torrent"; rows get Play (stream) and a Seed toggle; the details list files with checkboxes and per-file progress (first 300). The folders panel has a "BitTorrent and streaming" section. Extra Lucide icons come from `icon_assets!(ExtraIcons, …)` behind `AppAssets`. `hurtle magnet:…` / `hurtle file.torrent` arguments are forwarded like URLs; the Linux desktop entry declares `x-scheme-handler/magnet` and `application/x-bittorrent`.
 - **Notifications (`notify.rs`):** a watcher on the engine's runtime announces completed/failed downloads (not ones already in the list at start) while `Settings.notify` is on. Rows also offer remove-with-file and retry.
 - **Shutdown:** `on_app_quit` and a SIGTERM/SIGINT/SIGHUP handler both call `engine.shutdown()`. It saves state, kills yt-dlp and removes the socket.
 
@@ -190,6 +205,7 @@ hurtle-cli ── uses Engine directly (data in $HURTLE_DATA/cli), or --send ove
 - **Preferred resolution:** `storage.local.preferredQuality` (popup Settings → Video, default 1080, 0 = best). `HurtleUI.pickHeight` picks the highest size at or below it, else the lowest above; that chip is highlighted (`.chip.pick`) in the overlay menu and popup, and `dialog.js` preselects the same choice when no chip was clicked.
 - `build.sh` builds into `dist/.build` and swaps `dist/chrome`/`dist/firefox` in with `mv --exchange`. Brave/Chromium load `dist/chrome` unpacked and Zen may have `dist/firefox` as a temporary add-on, so the folders must never be missing, even mid-build.
 - Local builds get a 4th manifest version part (`build.sh`), so reinstalling a rebuilt `.xpi` is an update. Firefox/Zen kept serving the old files after a same-version reinstall.
+- **Torrents:** `content.js` catches left-clicks on `magnet:` links while catching is on (`download-magnet`); `downloads.onCreated` catches `.torrent`/`application/x-bittorrent` downloads and re-fetches the file with cookies (`fetchTorrent`, ≤ 4 MiB, must start with `d`); the context menu handles both. The dialog's torrent mode (`loadTorrent`) gets the file list over `dialog-torrent` → IPC `torrentInfo` and sends `files` (null = all), `seedRatio` and `stream` ("Play while downloading", Start only).
 - **Overlay (`content.js`):** a closed shadow-root button that sits above the hovered video.
   - With no direct file, it opens the dialog in video mode (`download-page`).
   - `dialog.js` then fetches the quality list over `dialog-probe`.

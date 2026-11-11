@@ -50,7 +50,8 @@ Other details:
 ## Layout
 
 ```
-crates/hurtle-core   engine: probe, segments, dynamic splitting, limits, persistence, IPC, yt-dlp runner
+crates/hurtle-core   engine: probe, segments, dynamic splitting, limits, persistence, IPC, yt-dlp runner,
+                     BitTorrent (librqbit), local stream server, player detection
 crates/hurtle-app    `hurtle`: GPUI desktop app (single instance, listens on $XDG_RUNTIME_DIR/hurtle.sock)
 crates/hurtle-host   `hurtle-host`: native-messaging host, relays browser → app, launches the app if needed
 crates/hurtle-cli    `hurtle-cli`: headless downloader / `--send` to the running app
@@ -64,6 +65,7 @@ extension/          MV3 WebExtension → dist/chrome, dist/firefox
 - **Popup.** It lists the media captured on the current page and has the app's global connections and speed-limit settings, plus the interception options: on/off, dialog on/off, minimum size, and file types the browser should keep.
 - **Download folders.** There is one main folder, plus optional folders for Videos, Music, Pictures, Documents, Archives and Programs. A file goes to its type's folder, or to the main folder if its type has none. You can set them in the app (the folder button next to Download), in the popup, or for a single download in the dialog's **Save to** row. "Change…" opens the system folder picker. The popup can change them even while the app is closed.
 - **Context menu.** Right-click a link or video and choose **Download with Hurtle**.
+- **Torrents.** Clicking a magnet link, or a download of a `.torrent` file, opens the dialog with the torrent's file list. Pick files, how long to seed, and whether to start playing right away.
 - Cookies, the Referer and the User-Agent are forwarded, so downloads that need a login still work.
 
 ## Video sites and streams (yt-dlp)
@@ -94,6 +96,18 @@ Video downloads use `yt-dlp` and `ffmpeg`, plus `deno` for YouTube (yt-dlp needs
 
 To install them yourself instead: `pacman -S yt-dlp ffmpeg deno`, `brew install yt-dlp ffmpeg deno`, or `winget install yt-dlp.yt-dlp Gyan.FFmpeg DenoLand.Deno`.
 
+## Torrents and streaming
+
+Magnet links and `.torrent` files download through a built-in BitTorrent client ([librqbit](https://github.com/ikatson/rqbit)), from the browser, the app (paste a magnet link, or **Open .torrent**), or the CLI.
+
+- **Choose files.** The dialog and the app's details list every file with its own progress. Checking more files on a finished torrent sets it back to Paused; resume it to fetch them.
+- **Play while downloading.** Hurtle serves each file over a local HTTP stream. Pressing Play opens it in VLC (found on `PATH`, Flatpak, `/Applications` or Program Files; otherwise mpv, Celluloid, Haruna, IINA, MPC-HC, PotPlayer… or the system default). Seeking fetches that part of the file first. **Copy stream URL** and **Copy playlist URL** (`.m3u` of every playable file) work in any player's "Open Network Stream". Turn on **Share streams on my network** to play on a TV or phone; every URL carries a random token.
+- **Seeding.** Finished torrents keep uploading until the ratio set in the dialog or the app (default 1). The Seed button starts or stops it, and the upload limit applies to all torrents together.
+- **Network.** Listening port 42069 (TCP and uTP; a taken port falls back to any free one), DHT and UPnP on by default, `x.pe=` peers in magnet links are used directly. The torrents' metadata and the DHT state are kept in `$HURTLE_DATA/torrent`.
+- **CLI:** `hurtle-cli --list <magnet|file.torrent>` lists the files; `--files 0,3`, `--seed 2` and `--play` choose files, the seed ratio and the player.
+
+Hurtle registers itself with the system as an app for `magnet:` links and `.torrent` files, so browsers, file managers and "Open with" offer it: the desktop entry's `MimeType` on Linux, ProgIDs and Default-apps capabilities on Windows, and the app bundle's `Info.plist` on macOS. It never takes over the default by itself. **Settings → Default app for magnet links and .torrent files → Make default** does that (on Windows it opens Settings → Default apps → Hurtle, since Windows leaves that choice to you).
+
 ## Development
 
 Tooling is managed by [mise](https://mise.jdx.dev), and JS dev dependencies by [aube](https://aube.sh).
@@ -108,6 +122,8 @@ mise run bench               # 1 vs 8 connections against it
 mise run ext:build           # extension/dist/{chrome,firefox} + zips
 mise run ext:e2e             # headless Chromium: sniff → overlay → dialog → Hurtle, HLS via yt-dlp
 HURTLE_BROWSER=brave mise run ext:e2e   # same in another Chromium-family browser
+cargo run -p hurtle-core --example torrent      # BitTorrent over loopback: magnet, file choice, stream, pause/restart/resume
+cargo run -p hurtle-core --example seed -- <path>   # seed a file or folder locally and print its magnet link
 ```
 
 ## Releases (Windows, macOS, Linux)

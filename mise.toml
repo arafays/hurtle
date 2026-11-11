@@ -151,7 +151,7 @@ run = "cargo deny --locked check"
 [tasks."ext:e2e"]
 description = "Headless Chromium end-to-end test of extension + host + app"
 depends = ["ext:build"]
-run = "cargo build -p hurtle-app -p hurtle-host && node extension/test/e2e.mjs"
+run = "cargo build -p hurtle-app -p hurtle-host -p hurtle-core --example seed && node extension/test/e2e.mjs"
 
 [tasks."ext:e2e-firefox"]
 description = "Headless Firefox/Zen test of the dialog (uses the installed host; HURTLE_FIREFOX=zen-bin, HURTLE_VIDEO=<real page>)"

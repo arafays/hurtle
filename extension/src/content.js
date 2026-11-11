@@ -5,6 +5,34 @@
   window.__hurtleOverlay = true;
 
   const api = globalThis.browser ?? globalThis.chrome;
+
+  // Magnet links open Hurtle's dialog (file list, streaming) instead of the
+  // system's torrent app, while "catch downloads" is on.
+  let catching = true;
+  api.storage.local.get("enabled").then((r) => (catching = r.enabled !== false), () => {});
+  api.storage.onChanged.addListener((c, area) => {
+    if (area === "local" && c.enabled) catching = c.enabled.newValue !== false;
+  });
+  document.addEventListener(
+    "click",
+    (e) => {
+      // Only the user's own clicks: a page calling a.click() mustn't start a torrent.
+      if (!catching || !e.isTrusted || e.defaultPrevented || e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
+      const a = e.composedPath().find((n) => n instanceof HTMLAnchorElement && n.href);
+      if (!a || !/^magnet:\?/i.test(a.href)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const href = a.href;
+      api.runtime
+        .sendMessage({ type: "download-magnet", url: href, title: a.textContent.trim().slice(0, 200), pageUrl: location.href })
+        .then(
+          (r) => r?.ok || (location.href = href),
+          () => (location.href = href),
+        );
+    },
+    true,
+  );
+
   const MIN_W = 200;
   const MIN_H = 110;
 

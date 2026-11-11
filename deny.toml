@@ -13,7 +13,11 @@ version = 2
 yanked = "deny"
 # Unmaintained crates are reported but do not fail the build (gpui pulls in several).
 unmaintained = "workspace"
-ignore = []
+ignore = [
+  # ringbuf 0.4 (via librqbit-utp): double drop only when an element's Drop
+  # panics. uTP's ring buffers hold `u8`, which has no Drop. Needs utp to move to 0.5.
+  { id = "RUSTSEC-2026-0293", reason = "only u8 elements, Drop can't panic" },
+]
 
 [licenses]
 version = 2

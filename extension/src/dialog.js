@@ -23,8 +23,10 @@ function fmtSize(n) {
 let settings = null;
 let dirChosen = false; // typed or picked in this dialog: sent as this download's folder
 let isMedia = false;
+let isTorrent = false;
 
 function fileCategory() {
+  if (isTorrent) return torrentCategory();
   if (isMedia) {
     const c = qualities?.[$("quality").value];
     return HurtleFolders.mediaCategory(c?.format, $("container").value || (c?.audioOnly ? "m4a" : ""));
@@ -77,6 +79,7 @@ async function init() {
   $("filename").value = p.filename || "";
   $("size").textContent = fmtSize(p.size);
   $("browser").hidden = !!p.media; // the browser can't download a page's video
+  isTorrent = !!p.torrent;
   // The page's own picture right away; yt-dlp's thumbnail replaces it later.
   if (p.thumb) showThumb(p.thumb);
   isMedia = !!p.media;
@@ -84,7 +87,8 @@ async function init() {
   // Defaults come from the Hurtle app's settings when it's reachable.
   const r = await api.runtime.sendMessage({ type: "app-settings" }).catch(() => null);
   if (!r?.ok) hostMissing();
-  if (p.media) loadQualities(p);
+  if (isTorrent) loadTorrent(p, r?.settings);
+  else if (p.media) loadQualities(p);
   else if (/^(video|audio)\//.test(p.mime || "") || /\.(mp4|m4v|webm|mkv|mov|mp3|m4a|ogg|opus)(?:$|[?#])/i.test(p.url)) preview(p);
 
   const def = r?.settings?.connections || 8;
@@ -321,6 +325,111 @@ function oneTrack() {
   $("audioRow").hidden = false;
 }
 
+// ---- torrents: which files, seeding, play while downloading
+
+let torrentFiles = null; // [{path, size, selected, padding}] from the app
+const fileBoxes = []; // [index, checkbox]
+
+function torrentCategory() {
+  // The biggest chosen file decides the folder, as in the app.
+  let best = null;
+  for (const [i, box] of fileBoxes) {
+    const f = torrentFiles[i];
+    if (box.checked && (!best || f.size > best.size)) best = f;
+  }
+  return best ? HurtleFolders.category(best.path) : null;
+}
+
+const PLAYABLE = /\.(mp4|m4v|mkv|webm|avi|mov|wmv|flv|ts|m2ts|mpg|mpeg|ogv|mp3|m4a|flac|ogg|opus|wav|aac)$/i;
+
+function torrentChanged() {
+  const chosen = fileBoxes.filter(([, b]) => b.checked);
+  const bytes = chosen.reduce((n, [i]) => n + torrentFiles[i].size, 0);
+  $("size").textContent = fmtSize(bytes);
+  $("torrentHint").textContent = `· ${chosen.length} of ${fileBoxes.length} chosen`;
+  const none = !chosen.length;
+  $("start").disabled = $("later").disabled = none || hostGone;
+  $("start").title = none ? "Choose at least one file" : "";
+  $("streamNow").disabled = !chosen.some(([i]) => PLAYABLE.test(torrentFiles[i].path));
+  if ($("streamNow").disabled) $("streamNow").checked = false;
+  updateDir();
+}
+
+function setAll(pick) {
+  for (const [i, b] of fileBoxes) b.checked = pick(torrentFiles[i]);
+  torrentChanged();
+}
+$("allFiles").onclick = () => setAll(() => true);
+$("noFiles").onclick = () => setAll(() => false);
+$("mediaFiles").onclick = () => setAll((f) => PLAYABLE.test(f.path));
+
+/** Magnet links and .torrent files: list the files (a magnet asks its peers first). */
+async function loadTorrent(p, appSettings) {
+  $("torrentRow").hidden = false;
+  $("connectionsCol").hidden = true; // peers, not connections, for torrents
+  $("filename").readOnly = true;
+  $("filename").title = "The torrent's own name";
+  $("browser").hidden = !p.torrentData && !/^magnet:/i.test(p.url) && p.browserDownloadId == null;
+  $("browser").textContent = /^magnet:/i.test(p.url) ? "Use torrent app" : "Use browser";
+  const def = appSettings?.seed_ratio ?? 1;
+  const seed = $("seedRatio");
+  for (const [v, label] of [[0, "Don't seed"], [0.5, "Until ratio 0.5"], [1, "Until ratio 1"], [2, "Until ratio 2"], [5, "Until ratio 5"]]) {
+    seed.add(new Option(label, v, false, v === def));
+  }
+  if (![...seed.options].some((o) => o.selected)) seed.add(new Option(`Until ratio ${def}`, def, true, true));
+  $("size").textContent = "…";
+  $("streamNow").disabled = true;
+  if (hostGone) {
+    $("files").replaceChildren(Object.assign(document.createElement("li"), { className: "hint", textContent: "Unavailable without the Hurtle app." }));
+    return;
+  }
+  const magnet = /^magnet:/i.test(p.url);
+  const started = Date.now();
+  const status = $("files").firstElementChild;
+  const timer = setInterval(() => {
+    const s = Math.round((Date.now() - started) / 1000);
+    status.textContent = magnet
+      ? `Asking peers for the file list… ${s}s. You can start now; Hurtle then gets every file.`
+      : `Reading the torrent… ${s}s`;
+  }, 1000);
+  report("torrent info start", { magnet });
+  const r = await api.runtime.sendMessage({ type: "dialog-torrent", key }).catch((e) => ({ ok: false, error: String(e?.message || e) }));
+  clearInterval(timer);
+  report("torrent info done", { ok: !!r?.ok, error: r?.error, files: r?.torrent?.files?.length, secs: ((Date.now() - started) / 1000).toFixed(1) }, r?.ok ? "info" : "error");
+  if (!r?.ok || !r.torrent) {
+    status.textContent = "Couldn't list the files. You can still start: Hurtle gets every file.";
+    $("error").textContent = r?.error || "";
+    $("size").textContent = "unknown";
+    $("streamNow").disabled = false;
+    return;
+  }
+  const t = r.torrent;
+  torrentFiles = t.files;
+  if (t.name && !nameEdited) $("filename").value = t.name;
+  const list = [];
+  for (const [i, f] of t.files.entries()) {
+    if (f.padding) continue;
+    const li = document.createElement("li");
+    const box = Object.assign(document.createElement("input"), { type: "checkbox", checked: f.selected !== false });
+    const label = document.createElement("label");
+    const path = document.createElement("span");
+    path.className = "path";
+    const slash = f.path.lastIndexOf("/");
+    if (slash > 0) path.append(Object.assign(document.createElement("em"), { textContent: f.path.slice(0, slash + 1) }));
+    path.append(f.path.slice(slash + 1));
+    path.title = f.path;
+    const size = Object.assign(document.createElement("span"), { className: "sz", textContent: fmtSize(f.size) });
+    label.append(box, path, size);
+    li.append(label);
+    box.addEventListener("change", torrentChanged);
+    fileBoxes.push([i, box]);
+    list.push(li);
+  }
+  $("files").replaceChildren(...list);
+  $("site").textContent = "";
+  torrentChanged();
+}
+
 let resolving = false;
 async function resolve(action) {
   if (resolving) return;
@@ -333,6 +442,15 @@ async function resolve(action) {
   };
   if (qualities) choice.format = qualities[$("quality").value]?.format || null;
   if (dirChosen && $("dir").value.trim()) choice.dir = $("dir").value.trim();
+  if (isTorrent) {
+    // Every file chosen (or the list never arrived): null, so Hurtle takes all.
+    const all = !fileBoxes.length || fileBoxes.every(([, b]) => b.checked);
+    choice.files = all ? null : fileBoxes.filter(([, b]) => b.checked).map(([i]) => i);
+    choice.seedRatio = Number($("seedRatio").value);
+    choice.stream = $("streamNow").checked && action === "start";
+    delete choice.filename;
+    delete choice.connections;
+  }
   if (!$("qualityRow").hidden) {
     choice.container = $("container").value || null;
     choice.audioLang = $("audioRow").hidden ? null : $("audio").value || null;
@@ -342,6 +460,7 @@ async function resolve(action) {
   resolving = false;
   $("error").textContent = r?.error || "Something went wrong";
   for (const b of document.querySelectorAll("footer button")) b.disabled = (listPage || hostGone) && (b.id === "start" || b.id === "later");
+  if (isTorrent && fileBoxes.length) torrentChanged();
 }
 
 $("start").onclick = () => resolve("start");

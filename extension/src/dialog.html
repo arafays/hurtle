@@ -57,8 +57,27 @@
         </label>
       </div>
     </div>
+    <div class="col" id="torrentRow" hidden>
+      <span>Files <em id="torrentHint" class="hint"></em></span>
+      <div class="filebar">
+        <button type="button" id="allFiles">All</button>
+        <button type="button" id="noFiles">None</button>
+        <button type="button" id="mediaFiles" title="Only video and audio files">Video and audio</button>
+      </div>
+      <ul id="files" class="files"><li class="hint">Reading the torrent…</li></ul>
+      <div class="grid2">
+        <label class="col">
+          <span>Seed afterwards</span>
+          <select id="seedRatio"></select>
+        </label>
+        <label class="check" title="Hurtle fetches the start of the file first and opens it in VLC (or another player) through a local stream">
+          <input type="checkbox" id="streamNow" />
+          <span>Play while downloading</span>
+        </label>
+      </div>
+    </div>
     <div class="grid">
-      <label class="col">
+      <label class="col" id="connectionsCol">
         <span>Connections</span>
         <select id="connections"></select>
       </label>

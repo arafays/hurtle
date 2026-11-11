@@ -242,6 +242,13 @@ fn split_ext(name: &str) -> (&str, &str) {
     }
 }
 
+/// `%20`-style escapes decoded (a `file://` URL's path).
+pub fn percent_decode(s: &str) -> String {
+    percent_encoding::percent_decode_str(s)
+        .decode_utf8_lossy()
+        .into_owned()
+}
+
 /// Where bytes land while a download is in progress.
 pub fn part_path(path: &Path) -> PathBuf {
     let mut s = path.as_os_str().to_owned();

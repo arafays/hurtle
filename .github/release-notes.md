@@ -1,4 +1,4 @@
-**Installers, notifications and auto-retry.** Hurtle now ships a per-user `setup.exe` for Windows, `.dmg`s for macOS, `.deb`s for Debian/Ubuntu, and one-line install scripts. Finished and failed downloads raise a desktop notification, and failed downloads retry on their own (both can be turned off in the app or the extension popup). Downloads also survive more server quirks, and the list keeps working when one saved entry is corrupt.
+**Torrents and streaming.** Hurtle now downloads magnet links and `.torrent` files with its own BitTorrent client: pick which files you want, seed to a ratio, and play videos in VLC (or mpv and others) while they download, with seeking. The extension catches magnet clicks and `.torrent` downloads and shows the torrent's file list before you start. Hurtle registers itself as an app for magnet links and `.torrent` files, and Settings → *Make default* makes it the default. The app now shows its version (footer and Settings → About), and `hurtle --version` prints it.
 
 ## Install
 

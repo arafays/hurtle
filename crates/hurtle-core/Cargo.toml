@@ -19,6 +19,12 @@ sha2 = { version = "0.11", default-features = false }
 tar = { version = "0.4.46", default-features = false }
 zip = { version = "9.5.0", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 lzma-rust2 = { version = "0.25.0", default-features = false, features = ["std", "xz"] }
+base64 = "0.22"
+getrandom = "0.3"
+librqbit = { version = "9.1", default-features = false, features = ["rust-tls"] }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+core-foundation = "0.10"

@@ -101,7 +101,7 @@ main() {
     else # older releases ship no desktop entry
       printf '%s\n' '[Desktop Entry]' 'Type=Application' 'Name=Hurtle' 'GenericName=Download Manager' \
         'Comment=Multi-connection download accelerator' "Exec=$prefix/bin/hurtle %U" 'Icon=hurtle' \
-        'Categories=Network;FileTransfer;' 'StartupWMClass=hurtle' 'Terminal=false' \
+        'Categories=Network;FileTransfer;P2P;' 'MimeType=x-scheme-handler/magnet;application/x-bittorrent;' 'StartupWMClass=hurtle' 'Terminal=false' \
         > "$prefix/share/applications/hurtle.desktop"
     fi
     have update-desktop-database && update-desktop-database "$prefix/share/applications" >/dev/null 2>&1 || true

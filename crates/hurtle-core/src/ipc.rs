@@ -22,6 +22,21 @@ pub enum IpcRequest {
     /// List the qualities a video page/stream offers (via yt-dlp). Uses
     /// `url` and the header fields of the request; nothing is queued.
     Probe(AddRequest),
+    /// The file list of a magnet link or `.torrent` (`url` or `torrentData`),
+    /// for the dialog. Magnets ask peers, which can take a minute or more.
+    TorrentInfo(AddRequest),
+    /// A URL a video player can stream a download's file from; with `play`,
+    /// also open it in the player (VLC first). `file` None = the main video.
+    #[serde(rename_all = "camelCase")]
+    Stream {
+        id: u64,
+        #[serde(default)]
+        file: Option<usize>,
+        #[serde(default)]
+        play: bool,
+    },
+    /// Video players found on this machine (for the player setting).
+    Players,
     /// Liveness check.
     Ping,
     /// Bring the window to the front.
@@ -62,6 +77,18 @@ pub struct SettingsChange {
     pub download_dir: Option<String>,
     /// Folders per file type; an empty path goes back to the main folder.
     pub type_dirs: Option<BTreeMap<String, String>>,
+    /// Torrents: seed until this share ratio (0 = don't seed).
+    pub seed_ratio: Option<f32>,
+    /// Torrents: upload limit, bytes/s (0 = unlimited).
+    pub upload_limit: Option<u64>,
+    /// Torrents: listening port (applies after a restart).
+    pub torrent_port: Option<u16>,
+    /// Torrents: DHT and local peer discovery (applies after a restart).
+    pub torrent_dht: Option<bool>,
+    /// Torrents: UPnP port forwarding (applies after a restart).
+    pub torrent_upnp: Option<bool>,
+    /// The stream player's id (`player::detect`), or "" for automatic.
+    pub player: Option<String>,
 }
 
 impl SettingsChange {
@@ -72,6 +99,12 @@ impl SettingsChange {
             && self.notify.is_none()
             && self.download_dir.is_none()
             && self.type_dirs.is_none()
+            && self.seed_ratio.is_none()
+            && self.upload_limit.is_none()
+            && self.torrent_port.is_none()
+            && self.torrent_dht.is_none()
+            && self.torrent_upnp.is_none()
+            && self.player.is_none()
     }
 }
 
@@ -98,6 +131,13 @@ pub struct IpcReply {
     /// `add` gave an existing paused or failed download the new link.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub resumed: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub torrent: Option<crate::torrent::TorrentProbe>,
+    /// `stream`: the URL to open in a player.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub players: Option<Vec<crate::player::Player>>,
     /// `probe` found a list page (channel, playlist, home page), not a video.
     #[serde(
         default,
@@ -240,6 +280,7 @@ pub fn pipe_name() -> String {
 fn reply_timeout(req: &IpcRequest) -> Duration {
     Duration::from_secs(match req {
         IpcRequest::Probe(_) => 100,
+        IpcRequest::TorrentInfo(_) => 190,
         // The user is choosing a folder.
         IpcRequest::PickFolder { .. } => 610,
         _ => 10,

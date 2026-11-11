@@ -1,7 +1,9 @@
 //! Hurtle desktop app (GPUI + gpui-kit).
 //!
 //! `hurtle [URL…]` opens the window, or, if Hurtle is already running, hands
-//! the URLs to that instance and exits.
+//! the URLs to that instance and exits. Magnet links and `.torrent` files
+//! (paths or `file://` URLs, as a desktop's file/URL handler passes them)
+//! work too.
 
 // No console window behind the app on Windows (release builds).
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
@@ -19,16 +21,68 @@ use std::time::Duration;
 use gpui_kit::*;
 use hurtle_core::{AddRequest, Engine, ipc};
 
+// Icons beyond gpui-kit's default set.
+gpui_kit::assets::icon_assets!(ExtraIcons, [TvMinimalPlay, Magnet, Upload, ListVideo, Link]);
+
+struct AppAssets;
+
+impl AssetSource for AppAssets {
+    fn load(&self, path: &str) -> Result<Option<std::borrow::Cow<'static, [u8]>>> {
+        if let Some(bytes) = ExtraIcons.load(path)? {
+            return Ok(Some(bytes));
+        }
+        gpui_kit::assets::Assets.load(path)
+    }
+    fn list(&self, path: &str) -> Result<Vec<SharedString>> {
+        let mut paths = gpui_kit::assets::Assets.list(path)?;
+        paths.extend(ExtraIcons.list(path)?);
+        paths.sort();
+        paths.dedup();
+        Ok(paths)
+    }
+}
+
+/// A command-line argument as a download: a web link, a magnet link, or a
+/// `.torrent` file (sent as data, since the running app may be another user
+/// of the socket's view of the disk).
+fn request_for(arg: &str) -> Option<AddRequest> {
+    if arg.starts_with("http://") || arg.starts_with("https://") || arg.starts_with("magnet:") {
+        return Some(AddRequest::new(arg));
+    }
+    let path = match arg.strip_prefix("file://") {
+        Some(p) => std::path::PathBuf::from(hurtle_core::util::percent_decode(p)),
+        None => std::path::PathBuf::from(arg),
+    };
+    if !path
+        .extension()
+        .is_some_and(|e| e.eq_ignore_ascii_case("torrent"))
+    {
+        return None;
+    }
+    let bytes = std::fs::read(&path).ok()?;
+    Some(AddRequest {
+        torrent_data: Some(hurtle_core::torrent::encode_data(&bytes)),
+        ..AddRequest::default()
+    })
+}
+
 fn main() -> anyhow::Result<()> {
-    let urls: Vec<String> = std::env::args()
+    if std::env::args()
+        .nth(1)
+        .is_some_and(|a| a == "--version" || a == "-V")
+    {
+        println!("hurtle {}", hurtle_core::build_info());
+        return Ok(());
+    }
+    let urls: Vec<AddRequest> = std::env::args()
         .skip(1)
-        .filter(|a| a.starts_with("http://") || a.starts_with("https://"))
+        .filter_map(|a| request_for(&a))
         .collect();
 
     // Single instance: forward to a running Hurtle if there is one.
     if ipc::send(&ipc::IpcRequest::Ping).is_ok() {
-        for url in &urls {
-            ipc::send(&ipc::IpcRequest::Add(AddRequest::new(url.clone())))?;
+        for req in &urls {
+            ipc::send(&ipc::IpcRequest::Add(req.clone()))?;
         }
         ipc::send(&ipc::IpcRequest::Show)?;
         return Ok(());
@@ -36,6 +90,8 @@ fn main() -> anyhow::Result<()> {
 
     // Let the browser extension find us (no-op when already registered).
     hurtle_core::nmh::ensure_registered();
+    // Offer Hurtle for magnet links and .torrent files (never takes over the default).
+    hurtle_core::assoc::ensure_registered();
 
     let engine = Arc::new(Engine::new()?);
     let flags = Arc::new(tray::Flags {
@@ -85,8 +141,8 @@ fn main() -> anyhow::Result<()> {
             std::process::exit(0);
         });
     }
-    for url in urls {
-        if let Err(e) = engine.add(AddRequest::new(url)) {
+    for req in urls {
+        if let Err(e) = engine.add(req) {
             eprintln!("hurtle: {e:#}");
         }
     }
@@ -96,78 +152,91 @@ fn main() -> anyhow::Result<()> {
     let has_tray = tray::start(&engine, flags.clone());
     notify::start(&engine);
 
-    gpui_kit::application()
-        .with_assets(gpui_kit::assets::Assets)
-        .run(move |cx| {
-            gpui_kit::init(cx);
-            view::bind_keys(cx);
-            // GPUI may exit the process without dropping the engine; save on quit.
-            let quit_engine = engine.clone();
-            cx.on_app_quit(move |_| {
-                quit_engine.shutdown();
-                async {}
-            })
-            .detach();
-            if has_tray {
-                cx.set_quit_mode(QuitMode::Explicit);
-            }
-            open_main_window(&engine, !has_tray, cx);
-            cx.activate(true);
-
-            // Tray / IPC requests: raise or reopen the window, or quit.
-            let engine = engine.clone();
-            let flags = flags.clone();
-            cx.spawn(async move |cx| {
-                let mut tick = 0u32;
-                loop {
-                    cx.background_executor()
-                        .timer(Duration::from_millis(200))
-                        .await;
-                    // Follow the desktop's palette when its generator rewrites it.
-                    tick = tick.wrapping_add(1);
-                    if tick.is_multiple_of(5) {
-                        let setting = engine.settings().theme;
-                        cx.update(|cx| theme::poll(&setting, cx));
-                    }
-                    if flags.quit.swap(false, Ordering::Relaxed) {
-                        cx.update(|cx| cx.quit());
-                        break;
-                    }
-                    // "Choose a folder" from the browser extension: show the
-                    // system picker and hand the answer back.
-                    for pick in engine.take_folder_picks() {
-                        let rx = cx.update(|cx| {
-                            cx.prompt_for_paths(PathPromptOptions {
-                                files: false,
-                                directories: true,
-                                multiple: false,
-                                prompt: Some(pick.title.clone().into()),
-                            })
-                        });
-                        cx.background_executor()
-                            .spawn(async move {
-                                let dir = rx
-                                    .await
-                                    .ok()
-                                    .and_then(Result::ok)
-                                    .flatten()
-                                    .and_then(|v| v.into_iter().next());
-                                let _ = pick.reply.send(dir);
-                            })
-                            .detach();
-                    }
-                    if flags.show.swap(false, Ordering::Relaxed) {
-                        cx.update(|cx| match cx.windows().first() {
-                            Some(w) => {
-                                let _ = w.update(cx, |_, window, _| window.activate_window());
-                            }
-                            None => open_main_window(&engine, !has_tray, cx),
-                        });
-                    }
+    let app = gpui_kit::application().with_assets(AppAssets);
+    // macOS hands over magnet links and opened .torrent files as Apple
+    // Events (not arguments), at launch and while running.
+    {
+        let engine = engine.clone();
+        let flags = flags.clone();
+        app.on_open_urls(move |urls| {
+            for req in urls.iter().filter_map(|u| request_for(u)) {
+                if let Err(e) = engine.add(req) {
+                    eprintln!("hurtle: {e:#}");
                 }
-            })
-            .detach();
+            }
+            flags.show.store(true, Ordering::Relaxed);
         });
+    }
+    app.run(move |cx| {
+        gpui_kit::init(cx);
+        view::bind_keys(cx);
+        // GPUI may exit the process without dropping the engine; save on quit.
+        let quit_engine = engine.clone();
+        cx.on_app_quit(move |_| {
+            quit_engine.shutdown();
+            async {}
+        })
+        .detach();
+        if has_tray {
+            cx.set_quit_mode(QuitMode::Explicit);
+        }
+        open_main_window(&engine, !has_tray, cx);
+        cx.activate(true);
+
+        // Tray / IPC requests: raise or reopen the window, or quit.
+        let engine = engine.clone();
+        let flags = flags.clone();
+        cx.spawn(async move |cx| {
+            let mut tick = 0u32;
+            loop {
+                cx.background_executor()
+                    .timer(Duration::from_millis(200))
+                    .await;
+                // Follow the desktop's palette when its generator rewrites it.
+                tick = tick.wrapping_add(1);
+                if tick.is_multiple_of(5) {
+                    let setting = engine.settings().theme;
+                    cx.update(|cx| theme::poll(&setting, cx));
+                }
+                if flags.quit.swap(false, Ordering::Relaxed) {
+                    cx.update(|cx| cx.quit());
+                    break;
+                }
+                // "Choose a folder" from the browser extension: show the
+                // system picker and hand the answer back.
+                for pick in engine.take_folder_picks() {
+                    let rx = cx.update(|cx| {
+                        cx.prompt_for_paths(PathPromptOptions {
+                            files: false,
+                            directories: true,
+                            multiple: false,
+                            prompt: Some(pick.title.clone().into()),
+                        })
+                    });
+                    cx.background_executor()
+                        .spawn(async move {
+                            let dir = rx
+                                .await
+                                .ok()
+                                .and_then(Result::ok)
+                                .flatten()
+                                .and_then(|v| v.into_iter().next());
+                            let _ = pick.reply.send(dir);
+                        })
+                        .detach();
+                }
+                if flags.show.swap(false, Ordering::Relaxed) {
+                    cx.update(|cx| match cx.windows().first() {
+                        Some(w) => {
+                            let _ = w.update(cx, |_, window, _| window.activate_window());
+                        }
+                        None => open_main_window(&engine, !has_tray, cx),
+                    });
+                }
+            }
+        })
+        .detach();
+    });
     Ok(())
 }
 

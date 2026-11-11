@@ -227,6 +227,15 @@ async function sendToHurtle(p) {
     pageUrl: p.sourcePage || p.pageUrl || p.referrer || null,
     size: p.size > 0 ? p.size : null,
   };
+  if (p.torrent) {
+    // The .torrent's bytes as the browser fetched them (logged-in trackers),
+    // the files picked in the dialog (null = all), seeding and "play now".
+    msg.torrentData = p.torrentData || null;
+    msg.files = Array.isArray(p.files) ? p.files : null;
+    msg.seedRatio = p.seedRatio ?? null;
+    msg.stream = !!p.stream;
+    msg.size = null;
+  }
   const name = sanitize(basename(p.filename));
   if (name) msg.filename = name;
   const reply = await native(msg);
@@ -246,10 +255,83 @@ function flashBadge(text, color) {
   setTimeout(() => badge("", "#000"), 2500);
 }
 
+// ---------- torrents ----------
+
+const TORRENT_MIME = /^application\/(x-)?bittorrent/i;
+const MAX_TORRENT = 4 << 20;
+
+function isTorrentDownload(url, mime, filename) {
+  if (TORRENT_MIME.test(mime || "")) return true;
+  if (/\.torrent$/i.test(filename || "")) return true;
+  try {
+    return /\.torrent$/i.test(new URL(url).pathname);
+  } catch {
+    return false;
+  }
+}
+
+/** The name in a magnet link (`dn=`), else its info hash. */
+function magnetName(url) {
+  try {
+    const q = new URLSearchParams(url.slice(url.indexOf("?") + 1));
+    return sanitize(q.get("dn") || "") || (q.get("xt") || "").split(":").pop() || "";
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * Fetch a .torrent with the browser's cookies (private trackers, one-time
+ * links behind a login) and return it base64-encoded, or null when that
+ * fails; Hurtle then fetches the URL itself.
+ */
+async function fetchTorrent(url) {
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), 15000);
+  try {
+    const r = await fetch(url, { credentials: "include", signal: ctl.signal });
+    if (!r.ok) return null;
+    const bytes = new Uint8Array(await r.arrayBuffer());
+    // A bencoded dictionary starts with "d"; anything else is an error page.
+    if (!bytes.length || bytes.length > MAX_TORRENT || bytes[0] !== 0x64) return null;
+    let bin = "";
+    for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+    return btoa(bin);
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** A magnet link or .torrent: the dialog (with its file list), or straight to Hurtle. */
+async function catchTorrent(pending) {
+  const s = await settings();
+  if (s.showDialog) return openDialog(pending);
+  const reply = await sendToHurtle(pending);
+  if (pending.browserDownloadId != null) await dropBrowserDownload(pending.browserDownloadId);
+  await setStatus(true, `${reply.resumed ? "Resumed" : "Sent"} ${pending.filename || "torrent"}`);
+  flashBadge("✓", "#16a34a");
+}
+
+/** The dialog's file list: the app reads the torrent (a magnet asks its peers). */
+async function dialogTorrent(key) {
+  const p = (await api.storage.session.get(key))[key];
+  if (!p) return { ok: false, error: "This download request expired." };
+  return native({
+    type: "torrentInfo",
+    url: p.url,
+    torrentData: p.torrentData || null,
+    referrer: p.referrer || null,
+    cookies: p.torrentData ? null : (await cookieHeader(p.url, p.cookieStoreId)) || null,
+    userAgent: navigator.userAgent,
+  });
+}
+
 // ---------- the "Download file info" dialog ----------
 
 async function openDialog(pending) {
-  dlog("dialog open", { url: safeUrl(pending.url), media: !!pending.media, file: pending.filename, quality: pending.quality, pageUrl: pending.pageUrl && safeUrl(pending.pageUrl) });
+  dlog("dialog open", { url: safeUrl(pending.url), media: !!pending.media, torrent: !!pending.torrent, file: pending.filename, quality: pending.quality, pageUrl: pending.pageUrl && safeUrl(pending.pageUrl) });
   const key = `pending:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`;
   // Stored before the window exists: the dialog reads it as soon as it loads.
   await api.storage.session.set({ [key]: { ...pending, windowId: null } });
@@ -259,7 +341,7 @@ async function openDialog(pending) {
     width: 520,
     // The layout scrolls and keeps its buttons in view at any size; these are
     // just comfortable: quality picker (video pages), preview row (video files).
-    height: pending.media ? 600 : /^(video|audio)\//.test(pending.mime || "") ? 540 : 470,
+    height: pending.torrent ? 620 : pending.media ? 600 : /^(video|audio)\//.test(pending.mime || "") ? 540 : 470,
   });
   const cur = (await api.storage.session.get(key))[key];
   if (cur) await api.storage.session.set({ [key]: { ...cur, windowId: win.id } });
@@ -275,6 +357,11 @@ async function resolvePending(key, action, choice = {}) {
   const dl = p.browserDownloadId;
 
   if (action === "browser") {
+    if (/^magnet:/i.test(p.url)) {
+      // The system's torrent app: open the link in the tab it came from.
+      if (p.tabId != null) await api.tabs.update(p.tabId, { url: p.url }).catch(() => {});
+      return { ok: true };
+    }
     if (dl != null) {
       const ok = await api.downloads.resume(dl).then(() => true, () => false);
       if (!ok) await restartInBrowser(p.url, dl);
@@ -372,13 +459,36 @@ api.downloads.onCreated.addListener(async (item) => {
 
   const s = await settings();
   if (!s.enabled) return;
-  if (s.minSizeMB > 0 && item.totalBytes > 0 && item.totalBytes < s.minSizeMB * 1024 * 1024) return;
   const skip = s.skipExtensions.toLowerCase().split(/[\s,]+/).filter(Boolean);
   if (skip.length && skip.includes(extOf(url, item.mime))) return;
+  // A .torrent is a few KB: the minimum size is about the content, not the file.
+  const torrent = isTorrentDownload(url, item.mime, item.filename);
+  if (!torrent && s.minSizeMB > 0 && item.totalBytes > 0 && item.totalBytes < s.minSizeMB * 1024 * 1024) return;
 
   dlog("browser download caught", { url: safeUrl(url), mime: item.mime, size: item.totalBytes });
   // Hold the browser's copy while Hurtle (or the user) decides.
   await api.downloads.pause(item.id).catch(() => {});
+  if (torrent) {
+    const torrentData = await fetchTorrent(url);
+    dlog("torrent file", { url: safeUrl(url), fetched: !!torrentData });
+    const pending = {
+      url,
+      torrent: true,
+      torrentData,
+      filename: basename(item.filename).replace(/\.torrent$/i, ""),
+      referrer: item.referrer || null,
+      browserDownloadId: item.id,
+      cookieStoreId: item.cookieStoreId,
+    };
+    try {
+      await catchTorrent(pending);
+    } catch (e) {
+      await setStatus(false, String(e?.message || e));
+      flashBadge("!", "#dc2626");
+      await api.downloads.resume(item.id).catch(() => {});
+    }
+    return;
+  }
   const pending = {
     url,
     filename: basename(item.filename),
@@ -579,7 +689,21 @@ api.runtime.onInstalled.addListener(async () => {
 api.contextMenus.onClicked.addListener(async (info, tab) => {
   if (info.menuItemId !== "hurtle-download") return;
   const url = info.linkUrl || info.srcUrl;
+  if (url && /^magnet:\?/i.test(url)) {
+    return openDialog({ url, torrent: true, filename: magnetName(url), referrer: info.pageUrl || tab?.url, sourcePage: tab?.url || null, tabId: tab?.id ?? null, cookieStoreId: tab?.cookieStoreId });
+  }
   if (!url || !/^https?:/i.test(url)) return;
+  if (isTorrentDownload(url)) {
+    return openDialog({
+      url,
+      torrent: true,
+      torrentData: await fetchTorrent(url),
+      filename: basename(new URL(url).pathname).replace(/\.torrent$/i, ""),
+      referrer: info.pageUrl || tab?.url,
+      sourcePage: tab?.url || null,
+      cookieStoreId: tab?.cookieStoreId,
+    });
+  }
   const isMedia = info.mediaType === "video" || info.mediaType === "audio";
   await openDialog({
     url,
@@ -592,7 +716,7 @@ api.contextMenus.onClicked.addListener(async (info, tab) => {
 
 // ---------- messages from popup / content script / dialog ----------
 
-const CONTENT_MSGS = new Set(["top-host", "media-list", "page-sizes", "download-media", "download-page"]);
+const CONTENT_MSGS = new Set(["top-host", "media-list", "page-sizes", "download-media", "download-page", "download-magnet"]);
 
 api.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   const reply = (p) => {
@@ -684,6 +808,28 @@ api.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         }).then(() => ({ ok: true })),
       );
     }
+    case "download-magnet": {
+      // A clicked magnet link (content.js), instead of the system's torrent app.
+      if (!/^magnet:\?/i.test(msg.url || "")) return reply(Promise.resolve({ ok: false, error: "Not a magnet link" }));
+      return reply(
+        settings().then(async (s) => {
+          if (!s.enabled) return { ok: false, error: "catching is off" };
+          await catchTorrent({
+            url: msg.url,
+            torrent: true,
+            filename: magnetName(msg.url) || sanitize(msg.title),
+            referrer: msg.pageUrl || sender.tab?.url || null,
+            sourcePage: msg.pageUrl || sender.tab?.url || null,
+            tabId: sender.tab?.id ?? null,
+            cookieStoreId: sender.tab?.cookieStoreId,
+          });
+          return { ok: true };
+        }),
+      );
+    }
+    case "dialog-torrent":
+      if (!/^pending:/.test(msg.key)) return reply(Promise.resolve({ ok: false, error: "forbidden" }));
+      return reply(dialogTorrent(msg.key));
     case "top-host": {
       // An iframe's overlay goes by the site in the address bar, which it
       // can't read itself across origins (Firefox has no ancestorOrigins).

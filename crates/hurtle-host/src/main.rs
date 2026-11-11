@@ -23,7 +23,7 @@ fn main() {
             }
             return;
         }
-        Some("--version") => return println!("hurtle-host {}", hurtle_core::VERSION),
+        Some("--version") => return println!("hurtle-host {}", hurtle_core::build_info()),
         _ => {}
     }
 
@@ -95,6 +95,9 @@ fn describe(req: &IpcRequest) -> String {
                 )
             }
         }
+        IpcRequest::TorrentInfo(a) => format!("torrent info {}", hurtle_core::log::url(&a.url)),
+        IpcRequest::Stream { id, file, play } => format!("stream #{id} file {file:?} play={play}"),
+        IpcRequest::Players => "players".into(),
         IpcRequest::PickFolder { .. } => "pick folder".into(),
         IpcRequest::Log { .. } => "log".into(),
     }
@@ -128,6 +131,13 @@ fn relay(req: &IpcRequest) -> IpcReply {
     }
     if let IpcRequest::Log { append, tail } = req {
         return IpcReply::log(append, *tail);
+    }
+    // Finding players needs no app either.
+    if matches!(req, IpcRequest::Players) {
+        return IpcReply {
+            players: Some(hurtle_core::player::detect()),
+            ..IpcReply::ok(None)
+        };
     }
     match ipc::send(req) {
         Ok(r) => return r,

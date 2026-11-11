@@ -6,7 +6,8 @@
 //
 // Checks: media sniffing → overlay button → dialog named from og:title →
 // "Start download" reaches Hurtle with the chosen connections/limit; and
-// a browser download is intercepted → dialog → "Download later".
+// a browser download is intercepted → dialog → "Download later"; a magnet
+// link click and a .torrent download open the dialog with the file list.
 
 import { spawn, execFileSync } from "node:child_process";
 import { createServer } from "node:http";
@@ -22,7 +23,11 @@ const profile = join(work, "profile");
 const data = join(work, "data");
 const downloads = join(work, "downloads");
 for (const d of [profile, data, downloads]) mkdirSync(d, { recursive: true });
-writeFileSync(join(data, "settings.json"), JSON.stringify({ download_dir: downloads, connections: 8 }));
+// Torrents stay on loopback: no DHT, UPnP or fixed port, and no seeding.
+writeFileSync(
+  join(data, "settings.json"),
+  JSON.stringify({ download_dir: downloads, connections: 8, torrent_dht: false, torrent_upnp: false, torrent_port: 0, seed_ratio: 0 }),
+);
 
 // Native host registered only inside this profile.
 mkdirSync(join(profile, "NativeMessagingHosts"));
@@ -58,6 +63,24 @@ execFileSync("ffmpeg", [
   "-c:v", "libx264", "-preset", "ultrafast", "-b:v", "1M", "-pix_fmt", "yuv420p", "-movflags", "+faststart", clipPath,
 ]);
 const clip = readFileSync(clipPath);
+
+// A torrent of a folder (the clip and a text file), seeded on loopback by
+// the `seed` example; its magnet names the seeder (x.pe), so no tracker or DHT.
+const pack = join(work, "seedsrc", "Pack");
+mkdirSync(pack, { recursive: true });
+writeFileSync(join(pack, "clip.mp4"), clip);
+writeFileSync(join(pack, "readme.txt"), "not wanted\n");
+const seeder = spawn(join(root, "target/debug/examples/seed"), [pack], { env: { ...process.env, TMPDIR: work }, stdio: ["ignore", "pipe", "ignore"] });
+const magnet = await new Promise((res, rej) => {
+  let out = "";
+  seeder.stdout.on("data", (b) => {
+    out += b;
+    const line = out.split("\n").find((l) => l.startsWith("magnet:"));
+    if (line) res(line.trim());
+  });
+  seeder.on("exit", () => rej(new Error("seeder exited")));
+  setTimeout(() => rej(new Error("seeder didn't start")), 20000);
+});
 // A file server for the clip, other files (any bytes do), streams and a page.
 const blob = Buffer.alloc(3 * 1024 * 1024, 7);
 const server = createServer((req, res) => {
@@ -68,6 +91,14 @@ const server = createServer((req, res) => {
     const type = file.endsWith(".m3u8") ? "application/vnd.apple.mpegurl" : "video/mp2t";
     res.writeHead(200, { "content-type": type });
     return res.end(readFileSync(file));
+  }
+  if (req.url === "/torrent") {
+    res.writeHead(200, { "content-type": "text/html" });
+    return res.end(`<!doctype html><title>Torrents</title><a id="m" href="${magnet.replace(/"/g, "&quot;")}">Pack (magnet)</a>`);
+  }
+  if (req.url === "/files/pack.torrent") {
+    res.writeHead(200, { "content-type": "application/x-bittorrent", "content-disposition": 'attachment; filename="Pack.torrent"' });
+    return res.end(readFileSync(join(work, "Pack.torrent")));
   }
   if (req.url === "/page") {
     res.writeHead(200, { "content-type": "text/html" });
@@ -418,6 +449,63 @@ try {
   check(vid.path?.startsWith(videos + "/"), `video saved in the Videos folder: ${vid.path}`);
   const dur = Number(execFileSync("ffprobe", ["-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", vid.path]).toString());
   check(Math.abs(dur - 6) < 0.5, `merged file plays: ${dur.toFixed(2)}s`);
+  // 7. Torrents. A magnet link click opens the dialog, which lists the files
+  //    (the metadata comes from the peer); only the video is downloaded.
+  const { targetId: tId } = await send("Target.createTarget", { url: `${base}/torrent` });
+  const tp = await attach(tId);
+  await until(() => evaluate(tp, `document.readyState === 'complete' && document.getElementById('m') ? true : null`), 10000, "torrent page");
+  await sleep(500); // content scripts run at document_idle
+  // A script's click must not start anything; only the user's own does.
+  // (The page stops the link's own navigation afterwards: a pending "open
+  // the torrent app?" prompt would swallow the real click below.)
+  await evaluate(tp, `(() => { addEventListener('click', (e) => e.isTrusted || e.preventDefault()); document.getElementById('m').click(); return true; })()`);
+  await sleep(1500);
+  const sneaky = (await targets()).some((t) => t.url.includes("/dialog.html") && !seen.has(t.targetId));
+  check(!sneaky, "a page's scripted click on a magnet link is ignored");
+  const ml = await evaluate(tp, `(() => { const r = document.getElementById('m').getBoundingClientRect(); return { x: r.left + 10, y: r.top + r.height / 2 }; })()`);
+  await send("Input.dispatchMouseEvent", { type: "mouseMoved", x: ml.x, y: ml.y }, tp);
+  await send("Input.dispatchMouseEvent", { type: "mousePressed", x: ml.x, y: ml.y, button: "left", clickCount: 1 }, tp);
+  await send("Input.dispatchMouseEvent", { type: "mouseReleased", x: ml.x, y: ml.y, button: "left", clickCount: 1 }, tp);
+  const d4 = await dialogFor(seen);
+  seen.add(d4.targetId);
+  const s4 = await attach(d4.targetId);
+  const files = await until(
+    () => evaluate(s4, `(() => { const b = document.querySelectorAll('#files input[type=checkbox]'); return b.length ? [...document.querySelectorAll('#files .path')].map(p => p.title) : null; })()`),
+    60000,
+    "torrent file list",
+  );
+  check(files.length === 2 && files.some((f) => f.endsWith("clip.mp4")), `magnet click → dialog lists the torrent's files: ${files.join(", ")}`);
+  const tinfo = await evaluate(s4, `(() => { document.getElementById('mediaFiles').click(); return { name: document.getElementById('filename').value, hint: document.getElementById('torrentHint').textContent, play: !document.getElementById('streamNow').disabled, conns: document.getElementById('connectionsCol').hidden }; })()`);
+  check(tinfo.name === "Pack" && /1 of 2/.test(tinfo.hint) && tinfo.play && tinfo.conns, `torrent mode: ${JSON.stringify(tinfo)}`);
+  if (shots) {
+    await send("Emulation.setDeviceMetricsOverride", { width: 520, height: 620, deviceScaleFactor: 1, mobile: false }, s4);
+    await sleep(300);
+    await shoot(s4, "dialog-torrent.png");
+  }
+  await evaluate(s4, `document.getElementById('start').click(); true`);
+  const tor = await until(() => {
+    const list = JSON.parse(readFileSync(store, "utf8"));
+    const d = list.find((d) => d.kind === "torrent");
+    return d?.status?.state === "completed" || d?.status?.state === "failed" ? d : null;
+  }, 60000, "torrent download to finish");
+  const got = tor.path && existsSync(join(tor.path, "clip.mp4")) ? readFileSync(join(tor.path, "clip.mp4")) : null;
+  check(tor.status.state === "completed" && got?.equals(clip), `torrent downloaded the chosen file byte for byte into ${tor.path} (${JSON.stringify(tor.status)})`);
+  check(tor.torrent?.files?.filter((f) => f.selected).length === 1, "only the chosen file is wanted");
+
+  //    A .torrent download is caught too: the dialog reads the file the browser fetched.
+  // A minimum size (meant for the content) must not let small .torrent files through.
+  await evaluate(swSession, `chrome.storage.local.set({ minSizeMB: 5 }).then(() => true)`);
+  await evaluate(swSession, `chrome.downloads.download({ url: '${base}/files/pack.torrent' }).then(() => true)`);
+  const d5 = await dialogFor(seen);
+  seen.add(d5.targetId);
+  const s5 = await attach(d5.targetId);
+  const files2 = await until(() => evaluate(s5, `document.querySelectorAll('#files input[type=checkbox]').length || null`), 20000, ".torrent file list");
+  check(files2 === 2, ".torrent download → dialog lists its files (with a 5 MB minimum size set)");
+  await evaluate(swSession, `chrome.storage.local.set({ minSizeMB: 0 }).then(() => true)`);
+  await evaluate(s5, `document.getElementById('cancel').click(); true`);
+  const tItems = await until(async () => ((await evaluate(swSession, `chrome.downloads.search({ urlRegex: 'pack\\.torrent' }).then(r => r.length)`)) === 0 ? true : null), 5000, "browser copy dropped").catch(() => false);
+  check(tItems, "cancelling drops the browser's .torrent download");
+
   // 6. Debug logs: the extension's own and Hurtle's file (host, yt-dlp, app).
   const extLog = (await evaluate(swSession, `chrome.storage.local.get('debugLog').then(r => r.debugLog || [])`)).join("\n");
   check(/native probe .*ok=true/.test(extLog) && /dialog start/.test(extLog), "extension debug log records probes and dialog actions");
@@ -437,6 +525,7 @@ try {
 } finally {
   ws.close();
   chrome.kill();
+  seeder.kill();
   server.close();
   // Stop the Hurtle instance this test started (matched by its private socket dir).
   spawn("pkill", ["-f", `^${join(root, "target/debug/hurtle")}$`]).on("exit", () => {

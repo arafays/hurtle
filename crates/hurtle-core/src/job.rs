@@ -17,7 +17,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::rate::RateLimiter;
 use crate::sched::{self, Plan, Ramp, SegView, Tuning};
-use crate::{Inner, Job, Kind, Segment, Status, media, util};
+use crate::{Inner, Job, Kind, Segment, Status, media, torrent, util};
 
 pub(crate) async fn run(inner: Arc<Inner>, job: Arc<Job>, token: CancellationToken) {
     let result = run_with_retries(&inner, &job, &token).await;
@@ -128,14 +128,15 @@ async fn run_with_retries(
     let mut retries = 0u32;
     let mut restarts = 0u32;
     loop {
-        let (media, before) = {
+        let (kind, before) = {
             let rec = job.rec.lock().unwrap();
-            (rec.kind == Kind::Media, rec.downloaded)
+            (rec.kind, rec.downloaded)
         };
-        let result = if media {
-            media::drive(inner, job, token).await
-        } else {
-            drive(inner, job, token).await
+        let result = match kind {
+            Kind::Media => media::drive(inner, job, token).await,
+            // librqbit keeps looking for peers itself: no retry loop here.
+            Kind::Torrent => return torrent::drive(inner, job, token).await,
+            Kind::File => drive(inner, job, token).await,
         };
         let Err(e) = result else { return Ok(()) };
         if token.is_cancelled() {
@@ -360,6 +361,16 @@ async fn drive(
             .to_ascii_lowercase()
             .starts_with("attachment")
     });
+    // A .torrent behind a link without the extension: fetch it over BitTorrent.
+    if ctype.starts_with("application/x-bittorrent") {
+        drop(probe);
+        {
+            let mut rec = job.rec.lock().unwrap();
+            rec.kind = Kind::Torrent;
+            rec.torrent.get_or_insert_with(Default::default);
+        }
+        return torrent::drive(inner, job, token).await;
+    }
     let page = ctype.starts_with("text/html") && !attachment;
     if (page || ctype.contains("mpegurl") || ctype.contains("dash+xml")) && media::ytdlp_available()
     {

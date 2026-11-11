@@ -60,7 +60,8 @@ GenericName=Download Manager
 Comment=Multi-connection download accelerator
 Exec=$bin/hurtle %U
 Icon=hurtle
-Categories=Network;FileTransfer;
+Categories=Network;FileTransfer;P2P;
+MimeType=x-scheme-handler/magnet;application/x-bittorrent;
 StartupWMClass=hurtle
 DESKTOP
 
