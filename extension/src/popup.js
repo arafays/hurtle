@@ -297,7 +297,7 @@ function normalizeHost(input) {
   } catch {
     return "";
   }
-  h = h.toLowerCase().replace(/\.$/, "").replace(/^www\./, "");
+  h = HurtleUI.siteKey(h);
   return /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*$/.test(h) ? h : "";
 }
 
@@ -320,6 +320,7 @@ async function loadOverlaySites() {
   try {
     if (/^https?:/i.test(tab?.url || "")) host = new URL(tab.url).hostname;
   } catch {}
+  const site = HurtleUI.siteKey(host);
   const read = async () => {
     const v = (await api.storage.local.get("overlayOff")).overlayOff;
     return Array.isArray(v) ? v : [];
@@ -332,11 +333,17 @@ async function loadOverlaySites() {
     const list = await read();
     $("siteRow").hidden = !host;
     if (host) {
-      $("siteHost").textContent = host;
+      $("siteHost").textContent = site;
       // Shown unless the host itself or a parent domain is listed.
       $("siteOn").checked = !HurtleUI.hostBlocked(list, host);
       // A parent domain blocks it: unticking/ticking here edits that entry.
-      $("siteOn").title = HurtleUI.hostBlocked(list, host) && !list.includes(host) ? "Hidden through a parent domain in the Sites tab" : "";
+      $("siteOn").title = HurtleUI.hostBlocked(list, host) && !list.some((h) => HurtleUI.siteKey(h) === site) ? "Hidden through a parent domain in the Sites tab" : "";
+      // The add field starts with this site, so hiding it is one click.
+      if (!$("offNew").value || $("offNew").dataset.auto) {
+        const fill = HurtleUI.hostBlocked(list, host) ? "" : site;
+        $("offNew").value = fill;
+        $("offNew").dataset.auto = fill ? "1" : "";
+      }
     }
     const q = $("offFilter").value.trim().toLowerCase();
     $("offFilter").hidden = list.length < 6 && !q;
@@ -371,7 +378,7 @@ async function loadOverlaySites() {
   $("siteOn").addEventListener("change", async () => {
     const cur = await read();
     // Showing again removes the host and any parent domain that blocks it.
-    const next = $("siteOn").checked ? cur.filter((h) => !HurtleUI.hostBlocked([h], host)) : [...cur, host];
+    const next = $("siteOn").checked ? cur.filter((h) => !HurtleUI.hostBlocked([h], host)) : [...cur, site];
     await api.storage.local.set({ overlayOff: next });
     render();
   });
@@ -380,12 +387,14 @@ async function loadOverlaySites() {
     const h = normalizeHost($("offNew").value);
     if (!h) return msg("That doesn't look like a site name.", true);
     const cur = await read();
-    if (cur.some((x) => String(x).toLowerCase() === h)) return msg(`${h} is already in the list.`, true);
+    if (cur.some((x) => HurtleUI.siteKey(x) === h)) return msg(`${h} is already in the list.`, true);
     await api.storage.local.set({ overlayOff: [...cur, h] });
     $("offNew").value = "";
+    $("offNew").dataset.auto = "";
     msg(`Hidden on ${h} and its subdomains.`);
     render();
   });
+  $("offNew").addEventListener("input", () => ($("offNew").dataset.auto = ""));
   $("offFilter").addEventListener("input", render);
   // Changes from the page button (or another popup) show up live.
   api.storage.onChanged.addListener((c, area) => {

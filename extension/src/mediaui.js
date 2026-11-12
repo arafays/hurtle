@@ -108,12 +108,21 @@ globalThis.HurtleUI ??= (() => {
     return top.map((h) => ({ label: `${h}p`, value: h, pick: h === pick }));
   }
 
-  /** Is `host` the blocked hostname or a subdomain of it? */
+  /**
+   * The site a hostname belongs to, as the blocked-sites list stores it:
+   * "WWW.YouTube.com." -> "youtube.com", "m.youtube.com" -> "youtube.com".
+   * Hiding the button on www.example.com must cover example.com too.
+   */
+  function siteKey(host) {
+    return String(host || "").toLowerCase().replace(/\.$/, "").replace(/^(www\d*|m|mobile)\.(?=[^.]+\.[^.]+)/, "");
+  }
+
+  /** Is `host` on a blocked site (the site itself or any subdomain)? */
   function hostBlocked(list, host) {
-    host = (host || "").toLowerCase();
+    host = String(host || "").toLowerCase().replace(/\.$/, "");
     return !!host && (list || []).some((h) => {
-      h = String(h).toLowerCase();
-      return host === h || host.endsWith(`.${h}`);
+      h = siteKey(h);
+      return !!h && (host === h || host.endsWith(`.${h}`));
     });
   }
 
@@ -241,7 +250,7 @@ globalThis.HurtleUI ??= (() => {
     }
     const s = document.createElement("div");
     s.className = "sub";
-    s.textContent = sub || "";
+    s.textContent = s.title = sub || "";
     meta.append(t, s);
     if (file) {
       const f = document.createElement("div");
@@ -272,12 +281,12 @@ globalThis.HurtleUI ??= (() => {
     if (chips?.length) setChips(chips);
     el.append(thumb(thumbOpts || {}), meta);
     if (onClick) el.addEventListener("click", onClick);
-    return { el, setSub: (text) => (s.textContent = text), setChips: (list) => setChips(list) };
+    return { el, setSub: (text) => (s.textContent = s.title = text || ""), setChips: (list) => setChips(list) };
   }
 
   // Overlay and popup style these the same way; colors come from each host.
   const CSS = `
-    .item { display: flex; gap: 10px; align-items: center; width: 100%; text-align: left; padding: 6px; border: 0;
+    .item { box-sizing: border-box; min-width: 0; display: flex; gap: 10px; align-items: center; width: 100%; text-align: left; padding: 6px; border: 0;
       border-radius: 8px; background: none; color: inherit; font: inherit; cursor: pointer; }
     .thumb { position: relative; flex: none; width: 96px; height: 54px; border-radius: 6px; overflow: hidden;
       background: rgba(127,127,127,.25); display: grid; place-items: center; color: rgba(255,255,255,.75); }
@@ -293,9 +302,9 @@ globalThis.HurtleUI ??= (() => {
       line-height: 16px; vertical-align: 1px; background: #0284c7; color: #fff; }
     .chips:empty { display: none; }
     .chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 3px; }
-    .chip { padding: 0 6px; border-radius: 999px; border: 1px solid currentColor; font-size: 10px; line-height: 16px; opacity: .8; }
+    .chip { white-space: nowrap; padding: 0 6px; border-radius: 999px; border: 1px solid currentColor; font-size: 10px; line-height: 16px; opacity: .8; }
     .chip:hover, .chip.pick { opacity: 1; background: #0284c7; border-color: #0284c7; color: #fff; }
   `;
 
-  return { fmtSize, fmtTime, quality, fileName, typeLabel, details, sizeChips, heightChips, pickHeight, topQualities, hostBlocked, sizesLine, thumb, row, CSS };
+  return { fmtSize, fmtTime, quality, fileName, typeLabel, details, sizeChips, heightChips, pickHeight, topQualities, hostBlocked, siteKey, sizesLine, thumb, row, CSS };
 })();

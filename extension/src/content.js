@@ -37,35 +37,56 @@
   const MIN_H = 110;
 
   const host = document.createElement("hurtle-overlay");
-  host.style.cssText = "all: initial; position: fixed; z-index: 2147483647; top: 0; left: 0; display: none;";
+  // Every host property is !important: a page's `* { … !important }` rules
+  // still reach the host element (only the shadow content is sealed off).
+  const setHost = (prop, value) => host.style.setProperty(prop, value, "important");
+  for (const [k, v] of Object.entries({
+    all: "initial", position: "fixed", "z-index": "2147483647", top: "0", left: "0", display: "none",
+    width: "max-content", height: "auto", margin: "0", padding: "0", border: "0", transform: "none",
+    "pointer-events": "auto", visibility: "visible", opacity: "1", contain: "layout style",
+  })) setHost(k, v);
   const root = host.attachShadow({ mode: "closed" });
   root.innerHTML = `
     <style>
       :host { all: initial; }
-      .wrap { font: 13px/1.3 system-ui, sans-serif; color: #f8fafc; display: flex; flex-direction: column; align-items: flex-end; }
+      *, *::before, *::after { box-sizing: border-box; }
+      [hidden] { display: none !important; }
+      .wrap { font: 13px/1.3 system-ui, -apple-system, "Segoe UI", sans-serif; color: #f8fafc; display: flex;
+        flex-direction: column; align-items: flex-end; width: max-content; color-scheme: dark;
+        -webkit-font-smoothing: antialiased; text-align: left; letter-spacing: normal; text-transform: none; }
+      /* The menu opens upward when there's more room above the button. */
+      .wrap.up { flex-direction: column-reverse; }
+      .wrap.up .menu { margin: 0 0 6px; }
+      .bar { white-space: nowrap; }
+      button { margin: 0; min-width: 0; text-transform: none; letter-spacing: normal; }
       button.main {
-        display: flex; align-items: center; gap: 6px; padding: 6px 10px; border: 0; border-radius: 8px;
-        background: rgba(17, 24, 39, .92); color: inherit; font: inherit; cursor: pointer;
+        display: flex; flex: none; align-items: center; gap: 6px; height: 30px; padding: 0 10px; border: 0; border-radius: 8px;
+        background: rgba(17, 24, 39, .92); color: inherit; font: inherit; line-height: 1; white-space: nowrap; cursor: pointer;
         box-shadow: 0 2px 10px rgba(0,0,0,.35);
       }
-      button.main:hover { background: #0369a1; }
+      button.main svg { flex: none; }
+      button.main:hover, button.main[aria-expanded="true"] { background: #0369a1; }
       .menu {
-        margin-top: 6px; width: 380px; max-width: calc(100vw - 16px); max-height: min(420px, 70vh); overflow: auto;
+        margin-top: 6px; width: 380px; max-width: calc(100vw - 8px); max-height: min(420px, 70vh); overflow: hidden auto;
+        overscroll-behavior: contain; scrollbar-width: thin; white-space: normal;
         background: rgba(17, 24, 39, .97); border-radius: 10px; box-shadow: 0 6px 24px rgba(0,0,0,.45); padding: 4px;
       }
+      .menu .meta .sub { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .menu .chip { white-space: nowrap; cursor: pointer; }
       .item:hover:not([disabled]) { background: rgba(3, 105, 161, .85); }
       .note { padding: 6px 8px; font-size: 12px; opacity: .8; }
       .head { padding: 4px 8px 2px; font-size: 10px; letter-spacing: .05em; text-transform: uppercase; opacity: .6; }
       .bar { display: flex; align-items: stretch; gap: 4px; }
-      button.x { padding: 6px 8px; border: 0; border-radius: 8px; background: rgba(17, 24, 39, .92); color: inherit;
+      button.x { flex: none; height: 30px; padding: 0 9px; border: 0; border-radius: 8px; line-height: 1; background: rgba(17, 24, 39, .92); color: inherit;
         font: inherit; opacity: .7; cursor: pointer; box-shadow: 0 2px 10px rgba(0,0,0,.35); }
       button.x:hover { opacity: 1; background: #0369a1; }
       button:focus-visible { outline: 2px solid #38bdf8; outline-offset: 1px; }
-      .count { padding: 0 6px; border-radius: 999px; background: #0284c7; color: #fff; font-size: 11px; font-weight: 600; line-height: 17px; }
+      .count { flex: none; white-space: nowrap; padding: 0 6px; border-radius: 999px; background: #0284c7; color: #fff; font-size: 11px; font-weight: 600; line-height: 17px; }
       button.main:hover .count:not(.busy) { background: #fff; color: #0369a1; }
       .count.busy { background: rgba(255,255,255,.18); font-weight: 400; }
       .off { display: block; width: 100%; margin-top: 2px; padding: 6px 8px; border: 0; border-top: 1px solid rgba(255,255,255,.12);
-        background: none; color: inherit; font: inherit; font-size: 11px; text-align: left; opacity: .65; cursor: pointer; }
+        background: none; color: inherit; font: inherit; font-size: 11px; text-align: left; opacity: .65; cursor: pointer;
+        overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       .off:hover { opacity: 1; text-decoration: underline; }
       .caret { font-size: 11px; opacity: .85; margin-left: -2px; }
     </style>
@@ -85,6 +106,8 @@
   const shared = document.createElement("style");
   shared.textContent = HurtleUI.CSS;
   root.prepend(shared);
+  const wrap = root.querySelector(".wrap");
+  const bar = root.querySelector(".bar");
   const button = root.querySelector("button.main");
   const close = root.querySelector(".x");
   const menu = root.querySelector(".menu");
@@ -162,15 +185,27 @@
     if (!target || !target.isConnected) return hide();
     const r = target.getBoundingClientRect();
     if (r.width < MIN_W || r.height < MIN_H || r.bottom < 0 || r.top > innerHeight) return hide();
-    host.style.display = "block";
-    // The open menu is wider than the button: keep both on screen.
-    const w = Math.max(button.getBoundingClientRect().width || 160, menu.hidden ? 0 : menu.getBoundingClientRect().width);
-    const h = button.getBoundingClientRect().height || 30;
-    host.style.left = `${Math.max(4, Math.min(r.right - w, innerWidth - w - 4))}px`;
+    setHost("display", "block");
+    // Measure the whole bar (button + ✕) and the open menu: positioning by
+    // the button alone squeezed the bar at the screen edge and wrapped it.
+    const h = bar.getBoundingClientRect().height || 30;
     // Sit just above the video so it never covers the picture; only when
     // there's no room above (video at the top of the screen) tuck it inside.
     const above = r.top - h - 6;
-    host.style.top = `${above >= 4 ? above : Math.max(4, r.top + 8)}px`;
+    const top = Math.min(above >= 4 ? above : Math.max(4, r.top + 8), innerHeight - h - 4);
+    // The menu goes where there's more room, and never past the screen.
+    let up = false;
+    if (!menu.hidden) {
+      const below = innerHeight - top - h - 14;
+      const room = top - 14;
+      up = below < Math.min(menu.scrollHeight, 260) && room > below;
+      menu.style.maxHeight = `${Math.max(100, Math.min(420, up ? room : below))}px`;
+    }
+    wrap.classList.toggle("up", up);
+    const box = wrap.getBoundingClientRect();
+    const w = box.width || 160;
+    setHost("left", `${Math.max(4, Math.min(r.right - w, innerWidth - w - 4))}px`);
+    setHost("top", `${up ? top + h - box.height : top}px`);
   }
 
   // What yt-dlp says this page's video comes in, asked once per page URL
@@ -240,7 +275,7 @@
   }
 
   function hide() {
-    host.style.display = "none";
+    setHost("display", "none");
     menu.hidden = true;
     onSizes = null;
     target = null;
@@ -367,7 +402,7 @@
     const off = document.createElement("button");
     off.type = "button";
     off.className = "off";
-    off.textContent = `Don't show on ${topHost || location.hostname}`;
+    off.textContent = `Don't show on ${HurtleUI.siteKey(topHost || location.hostname)}`;
     off.title = "Hide this button on this site; bring it back from the Hurtle toolbar button";
     off.addEventListener("click", async (e) => {
       e.preventDefault();
@@ -375,7 +410,7 @@
       const cur = (await api.storage.local.get("overlayOff").catch(() => ({}))).overlayOff;
       const list = Array.isArray(cur) ? cur : [];
       // The site you see (the popup lists it), not an embedded player's host.
-      const site = topHost || location.hostname;
+      const site = HurtleUI.siteKey(topHost || location.hostname);
       if (!HurtleUI.hostBlocked(list, site)) list.push(site);
       siteOff = true;
       hide();
@@ -409,6 +444,19 @@
     }
     return null;
   }
+
+  // A click anywhere else closes the menu, like any other menu.
+  addEventListener(
+    "pointerdown",
+    (e) => {
+      if (menu.hidden || e.composedPath().includes(host)) return;
+      menu.hidden = true;
+      onSizes = null;
+      place();
+      hideSoon();
+    },
+    true,
+  );
 
   addEventListener("scroll", () => target && place(), { passive: true, capture: true });
   addEventListener("resize", () => target && place(), { passive: true });
